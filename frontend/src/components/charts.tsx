@@ -46,7 +46,7 @@ export function MetricChart({ data, dataKey, unit, label, range }: { data: Metri
               labelFormatter={(t) => fmtDateTime(String(t))}
               formatter={(v) => [value(v), label]}
             />
-            <Area type="monotone" dataKey={dataKey} stroke="var(--chart-line)" strokeWidth={2} fill={`url(#${gradientId})`}
+            <Area type="linear" dataKey={dataKey} stroke="var(--chart-line)" strokeWidth={2} fill={`url(#${gradientId})`}
               connectNulls={false} isAnimationActive={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--card)" }} />
           </AreaChart>
         </ResponsiveContainer>

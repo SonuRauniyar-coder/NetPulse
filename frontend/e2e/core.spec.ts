@@ -21,14 +21,14 @@ test("sign in, add a device and see a real status", async ({ page }) => {
   await page.getByRole("link", { name: "Devices" }).click();
   await page.getByRole("button", { name: "Add device" }).click();
 
-  await page.getByLabel("Name").fill(name);
-  await page.getByLabel("IP or hostname").fill("not a host!");
-  await page.locator("#device-form").press("Enter").catch(() => undefined);
-  await page.getByRole("dialog").getByRole("button", { name: "Add device" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name", { exact: true }).fill(name);
+  await dialog.getByLabel("IP or hostname").fill("not a host!");
+  await dialog.getByRole("button", { name: "Add device" }).click();
   await expect(page.getByText("Enter a valid IPv4, IPv6 or hostname")).toBeVisible();
 
-  await page.getByLabel("IP or hostname").fill("127.0.0.1");
-  await page.getByRole("dialog").getByRole("button", { name: "Add device" }).click();
+  await dialog.getByLabel("IP or hostname").fill("127.0.0.1");
+  await dialog.getByRole("button", { name: "Add device" }).click();
 
   // No reload: the row must turn Up through the WebSocket push after a real ping.
   const row = page.getByRole("row", { name: new RegExp(name) });

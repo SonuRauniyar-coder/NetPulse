@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Client } from "@stomp/stompjs";
 import { useQueryClient } from "@tanstack/react-query";
-import { getAccessToken, refreshSession } from "./api";
+import { freshAccessToken } from "./api";
 
 const Ctx = createContext(false);
 export const useLiveConnected = () => useContext(Ctx);
@@ -21,8 +21,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       brokerURL: `${scheme}://${location.host}/ws`,
       reconnectDelay: 3000,
       beforeConnect: async () => {
-        try { await refreshSession(); } catch { /* the API layer handles expiry */ }
-        client.connectHeaders = { Authorization: `Bearer ${getAccessToken() ?? ""}` };
+        const token = await freshAccessToken().catch(() => null);   // on failure the API layer handles expiry
+        client.connectHeaders = { Authorization: `Bearer ${token ?? ""}` };
       },
       onConnect: () => {
         setConnected(true);
