@@ -5,6 +5,7 @@ import com.netpulse.common.process.OsFamily;
 import com.netpulse.common.process.ProcessFailureException;
 import com.netpulse.common.process.ProcessResult;
 import com.netpulse.common.process.ProcessRunner;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.net.InetAddress;
@@ -18,6 +19,7 @@ public class PingService {
     private final int count;
     private final Duration replyTimeout;
 
+    @Autowired
     public PingService(ProcessRunner runner, NetPulseProperties props) {
         this(runner, OsFamily.detect(), props.monitoring().pingCount(), props.monitoring().pingReplyTimeout());
     }
