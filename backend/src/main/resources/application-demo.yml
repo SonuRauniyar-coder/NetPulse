@@ -1,0 +1,14 @@
+# Demo profile: SEPARATE database, seeded with clearly labelled synthetic data for screenshots.
+# The monitoring engine is OFF so demo devices are never probed and demo data never mixes with real results.
+spring:
+  datasource:
+    url: ${DEMO_DB_URL:jdbc:postgresql://localhost:5432/netpulse_demo}
+netpulse:
+  demo-mode: true
+  monitoring:
+    enabled: false
+  security:
+    jwt-secret: ${JWT_SECRET:demo-only-secret-change-me-0123456789abcdef}
+    cookie-secure: ${COOKIE_SECURE:false}
+    admin-username: demo
+    admin-password: NetPulse-Demo-2026!

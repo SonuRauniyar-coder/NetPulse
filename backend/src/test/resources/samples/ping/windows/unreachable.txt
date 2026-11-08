@@ -1,0 +1,8 @@
+
+Pinging 10.0.0.99 with 32 bytes of data:
+Reply from 10.0.0.2: Destination host unreachable.
+Reply from 10.0.0.2: Destination host unreachable.
+Reply from 10.0.0.2: Destination host unreachable.
+
+Ping statistics for 10.0.0.99:
+    Packets: Sent = 3, Received = 3, Lost = 0 (0% loss),
