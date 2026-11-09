@@ -14,6 +14,7 @@ import java.util.UUID;
 @Component
 public class LivePublisher {
     public static final String TOPIC_MONITORING = "/topic/monitoring";
+    public static final String TOPIC_ALERTS = "/topic/alerts";
     private static final Logger log = LoggerFactory.getLogger(LivePublisher.class);
 
     private final SimpMessagingTemplate template;
@@ -33,6 +34,15 @@ public class LivePublisher {
                     r.statusChanged(), r.assessment().icmpBlocked(), r.rttMs(), r.lossPct(), r.assessment().reason(), r.checkedAt()));
         } catch (RuntimeException e) {
             log.warn("Failed to publish live update: {}", e.getMessage());   // live push is best-effort
+        }
+    }
+
+    /** A signal only: clients refetch, so the payload never has to be kept in step with the REST shape. */
+    public void publishAlertChange() {
+        try {
+            template.convertAndSend(TOPIC_ALERTS, java.util.Map.of("changed", true));
+        } catch (RuntimeException e) {
+            log.warn("Failed to publish alert update: {}", e.getMessage());
         }
     }
 }

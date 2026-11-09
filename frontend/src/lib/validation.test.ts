@@ -18,5 +18,10 @@ describe("deviceSchema", () => {
   it("rejects duplicate ports", () => expect(deviceSchema.safeParse({ ...base, ports: [{ port: 80 }, { port: 80 }] }).success).toBe(false));
   it("rejects too-short interval", () => expect(deviceSchema.safeParse({ ...base, checkIntervalSeconds: 5 }).success).toBe(false));
   it("needs a domain for non-PTR lookups", () => expect(deviceSchema.safeParse({ ...base, dnsChecks: [{ recordType: "A" }] }).success).toBe(false));
+  it("explains a blank interval", () => {
+    const r = deviceSchema.safeParse({ ...base, checkIntervalSeconds: "" });
+    expect(r.error?.issues[0].message).toBe("Enter an interval in seconds");
+  });
+  it("limits the number of ports", () => expect(deviceSchema.safeParse({ ...base, ports: Array.from({ length: 33 }, (_, i) => ({ port: i + 1 })) }).success).toBe(false));
   it("allows PTR without a name", () => expect(deviceSchema.safeParse({ ...base, dnsChecks: [{ recordType: "PTR" }] }).success).toBe(true));
 });

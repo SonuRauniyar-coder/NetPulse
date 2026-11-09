@@ -14,6 +14,9 @@ NetPulse is a modular monolith: one deployable Spring Boot application, organize
 | `monitoring.status` | Pure status logic |
 | `monitoring.result` | Time-series storage and queries |
 | `monitoring.retention` | Hourly rollups and cleanup |
+| `traceroute`, `subnet`, `discovery`, `snmp` | Network tools and SNMP polling |
+| `alert`, `notification` | Rules, state machine, maintenance windows, outbox delivery |
+| `report`, `event`, `audit`, `settings` | SLA reports, event log, audit trail, runtime settings |
 | `dashboard`, `realtime`, `system`, `demo` | KPIs, STOMP push, public info, synthetic seed |
 
 ## Data flow of a check
@@ -36,9 +39,11 @@ sequenceDiagram
     end
     R->>D: one transaction: lock device, evaluate, store results and event
     R->>W: publish after commit
+    R->>D: alert engine: one transaction for alert changes and outbox rows
+    R->>W: publish alert change
 ```
 
-In Phase 3 the alert engine attaches after the commit, next to the publish step.
+SNMP polls follow the same dispatch design and feed the same alert engine. A separate worker delivers the outbox rows to email and webhooks, retrying with backoff.
 
 ## Database
 
@@ -54,9 +59,19 @@ erDiagram
     device_check ||--o{ dns_result : ""
     device ||--o{ status_event : ""
     device ||--o{ rollup_hourly : ""
+    device ||--o| snmp_config : ""
+    device ||--o{ snmp_interface : ""
+    snmp_interface ||--o{ snmp_sample : ""
+    discovery_scan ||--o{ discovery_host : ""
+    alert_rule ||--o{ alert : raises
+    device ||--o{ alert : ""
+    alert_rule ||--o{ alert_pending : timing
+    device ||--o{ maintenance_window : ""
+    notification_channel ||--o{ notification_delivery : ""
+    alert ||--o{ notification_delivery : ""
 ```
 
-The migration [V1__baseline.sql](../backend/src/main/resources/db/migration/V1__baseline.sql) is the full definition.
+The [migrations](../backend/src/main/resources/db/migration/) are the full definition.
 
 ## Key decisions
 
@@ -75,6 +90,13 @@ The migration [V1__baseline.sql](../backend/src/main/resources/db/migration/V1__
 | JWT in memory, refresh in `HttpOnly` cookie | XSS can't read the long-lived credential; only cookie endpoints need CSRF defense |
 | No CSRF rotation on authentication | With stateless JWT, every request "authenticates", so rotation would break concurrent refreshes |
 | No Lombok | Explicit code avoids coupling the build to compiler internals across JDK versions |
+| Transactional outbox for notifications | An alert and its messages commit together, and a slow SMTP server holds no database connection |
+| `NO_DATA` is separate from "clear" | An unreachable host has no RTT, which must not resolve a latency alert |
+| Partial unique index on open alerts | The database guarantees one open alert per condition |
+| Rates from `sysUpTime`, samples dropped on doubt | The agent's clock is the accurate one, and a gap is more honest than a false spike |
+| Traceroute runs held in memory | They're short-lived, and the audit log keeps the record of who ran what |
+| AES-GCM with the owner id as associated data | Tampering is detected, and ciphertext can't be copied to another row |
+| Webhook redirects disabled, loopback refused | An admin-supplied URL can't be used to reach the server's own internal services |
 
 ## Privileges and platforms
 
@@ -83,9 +105,14 @@ The migration [V1__baseline.sql](../backend/src/main/resources/db/migration/V1__
 | Linux containers | Run as non-root with `cap_drop: ALL` and `cap_add: NET_RAW`, the minimum for ICMP |
 | macOS | `ping` is privileged already; `ping6` handles IPv6 and uses a different output format |
 | Windows | Output is localized, so the parser matches structure. Fixtures are written from the documented format and have **not** been verified on a live Windows machine |
-| Docker Desktop | Containers run in a VM and can't see your LAN's ARP table. Phase 2 discovery needs the native backend, or `network_mode: host` on Linux |
+| Docker Desktop | Containers run in a VM and can't see your LAN's ARP table. Discovery needs the native backend, or `network_mode: host` on Linux |
 
 ## Current limits
 
-- Thresholds are global and set in configuration. The Settings page arrives in Phase 3.
-- Rate limiting and the STOMP broker are in-memory, so the backend runs as a single instance.
+- Thresholds are global, not per device.
+- Rate limiting, the STOMP broker and the settings cache are in-memory, so the backend runs as a single instance.
+- The subnet calculator and discovery handle IPv4 only.
+- Every API request re-checks the account, so deleting or disabling a user, changing their role, or resetting their password takes effect immediately. Open WebSockets are re-checked every 5 seconds and closed when their token expires or the account loses access. Logging out revokes the refresh token; the in-memory access token is discarded by the browser.
+- Webhook destinations are checked before each send, but the HTTP client resolves the name again, leaving a small DNS-rebinding window. Only admins can configure webhooks.
+- SNMP traps are not received; everything is polled.
+- The Linux traceroute and neighbor formats were checked against real tool output. The Windows `tracert` and `arp -a` fixtures are written from the documented format and have **not** been run on a Windows machine.

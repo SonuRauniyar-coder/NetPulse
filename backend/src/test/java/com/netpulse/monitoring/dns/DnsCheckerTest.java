@@ -17,7 +17,7 @@ import static org.mockito.Mockito.when;
 
 class DnsCheckerTest {
     private final Resolver resolver = mock(Resolver.class);
-    private final DnsChecker checker = new DnsChecker(Duration.ofSeconds(1), new TargetValidator()) {
+    private final DnsChecker checker = new DnsChecker(Duration.ofSeconds(1), new TargetValidator(true)) {
         @Override protected Resolver resolverFor(String server) { return resolver; }
     };
 

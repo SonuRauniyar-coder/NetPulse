@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BellOff, ChartLine, History, Plus, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/features/auth/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState, ErrorState, PageHeader, Panel, RelativeTime, RowsSkeleton, StatusBadge } from "@/components/common";
+import { EmptyState, ErrorState, PageHeader, Panel, RelativeTime, RowsSkeleton, SeverityBadge, StatusBadge } from "@/components/common";
 import { MetricChart, RangePicker } from "@/components/charts";
 import { api } from "@/lib/api";
 import { fmtMs, fmtPct } from "@/lib/format";
@@ -22,6 +23,7 @@ function Kpi({ label, value, hint }: { label: string; value: string | number; hi
 
 export function DashboardPage() {
   const [range, setRange] = useState<Range>("1h");
+  const canWrite = useAuth().user?.role !== "VIEWER";
   const summary = useQuery({ queryKey: ["dashboard", "summary"], queryFn: () => api<DashboardSummary>("/dashboard/summary"), refetchInterval: 30_000 });
   const latency = useQuery({ queryKey: ["dashboard", "latency", range], queryFn: () => api<MetricPoint[]>(`/dashboard/latency?range=${range}`), refetchInterval: 30_000 });
   const s = summary.data;
@@ -29,7 +31,7 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader title="Dashboard" description="Live state of everything NetPulse monitors."
-        action={<Button asChild size="sm"><Link to="/devices?new=1"><Plus /> Add device</Link></Button>} />
+        action={canWrite ? <Button asChild size="sm"><Link to="/devices?new=1"><Plus /> Add device</Link></Button> : undefined} />
 
       {summary.isError ? (
         <Panel><ErrorState message={summary.error.message} onRetry={() => summary.refetch()} /></Panel>
@@ -40,7 +42,7 @@ export function DashboardPage() {
           <Kpi label="Total devices" value={s.total} hint={s.paused ? `${s.paused} paused` : undefined} />
           <Kpi label="Up" value={s.up} hint={s.degraded ? `${s.degraded} degraded` : undefined} />
           <Kpi label="Down" value={s.down} hint={s.unknown ? `${s.unknown} unknown` : undefined} />
-          <Kpi label="Active alerts" value="—" hint="Available in Phase 3" />
+          <Kpi label="Active alerts" value={s.activeAlerts} hint="open right now" />
           <Kpi label="Avg latency" value={fmtMs(s.avgLatencyMs)} hint="latest ping, all devices" />
           <Kpi label="Network uptime" value={fmtPct(s.networkUptimePct, 2)} hint="last 24 hours" />
         </div>
@@ -55,11 +57,11 @@ export function DashboardPage() {
         </div>
       </Panel>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Top 5 slowest devices">
           {!s ? <RowsSkeleton /> : s.slowest.length === 0
             ? <EmptyState icon={Server} title="No latency data yet" description="Add a device to start measuring."
-                action={<Button asChild size="sm" variant="outline"><Link to="/devices?new=1">Add device</Link></Button>} />
+                action={canWrite ? <Button asChild size="sm" variant="outline"><Link to="/devices?new=1">Add device</Link></Button> : undefined} />
             : <ul className="divide-y">{s.slowest.map((d) => (
                 <li key={d.id}>
                   <Link to={`/devices/${d.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted">
@@ -70,7 +72,17 @@ export function DashboardPage() {
               </ul>}
         </Panel>
         <Panel title="Recent alerts">
-          <EmptyState icon={BellOff} title="Alerting isn't enabled yet" description="Alert rules and notifications arrive in Phase 3." />
+          {!s ? <RowsSkeleton /> : s.recentAlerts.length === 0
+            ? <EmptyState icon={BellOff} title="No alerts" description="Alerts appear here when a rule's condition is met." action={<Button asChild size="sm" variant="outline"><Link to="/alerts">Manage rules</Link></Button>} />
+            : <ul className="divide-y">{s.recentAlerts.map((a) => (
+                <li key={a.id} className="px-4 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Link to="/alerts" className="truncate text-sm hover:underline" title={a.message}>{a.message}</Link>
+                    <SeverityBadge severity={a.severity} />
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{a.state[0] + a.state.slice(1).toLowerCase()} · <RelativeTime iso={a.triggeredAt} /></p>
+                </li>))}
+              </ul>}
         </Panel>
         <Panel title="Recent status changes">
           {!s ? <RowsSkeleton /> : s.recentChanges.length === 0

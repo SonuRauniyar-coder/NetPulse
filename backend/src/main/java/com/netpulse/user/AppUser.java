@@ -25,6 +25,7 @@ public class AppUser {
     private int failedAttempts;
     private Instant lockedUntil;
     private Instant lastLoginAt;
+    private Instant sessionsValidAfter;
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -47,6 +48,8 @@ public class AppUser {
     public void setLockedUntil(Instant lockedUntil) { this.lockedUntil = lockedUntil; }
     public Instant getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; }
+    public Instant getSessionsValidAfter() { return sessionsValidAfter; }
+    public void setSessionsValidAfter(Instant sessionsValidAfter) { this.sessionsValidAfter = sessionsValidAfter; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

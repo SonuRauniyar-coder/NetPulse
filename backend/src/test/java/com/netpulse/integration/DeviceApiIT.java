@@ -140,4 +140,49 @@ class DeviceApiIT extends IntegrationTestBase {
     @Test void badUuidIsClientError() throws Exception {
         mvc.perform(get("/api/v1/devices/not-a-uuid").header("Authorization", admin)).andExpect(status().is4xxClientError());
     }
+
+    @Test void nullListItemsAreValidationErrors() throws Exception {
+        for (String field : new String[]{"ports", "tags", "dnsChecks"}) {
+            create("{\"name\":\"n\",\"host\":\"8.8.8.8\",\"type\":\"SERVER\",\"%s\":[null]}".formatted(field)).andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test void decimalPortRejected() throws Exception {
+        create("{\"name\":\"d\",\"host\":\"8.8.8.8\",\"type\":\"SERVER\",\"ports\":[{\"port\":80.5}]}").andExpect(status().isBadRequest());
+    }
+
+    @Test void nulCharacterRejected() throws Exception {
+        create("{\"name\":\"a\\u0000b\",\"host\":\"8.8.8.8\",\"type\":\"SERVER\"}").andExpect(status().isBadRequest());
+    }
+
+    @Test void pageBeyondOffsetRangeRejected() throws Exception {
+        mvc.perform(get("/api/v1/devices?page=2147483647&size=25").header("Authorization", admin)).andExpect(status().isBadRequest());
+    }
+
+    @Test void bulkRejectsNullId() throws Exception {
+        mvc.perform(post("/api/v1/devices/bulk").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ids\":[null],\"action\":\"DELETE\"}")).andExpect(status().isBadRequest());
+    }
+
+    private ResultActions update(String id, String json) throws Exception {
+        return mvc.perform(put("/api/v1/devices/" + id).header("Authorization", admin)
+                .contentType(MediaType.APPLICATION_JSON).content(json));
+    }
+
+    @Test void omittedDescriptionIsKept() throws Exception {
+        String id = id(create("{\"name\":\"k\",\"host\":\"8.8.8.8\",\"type\":\"SERVER\",\"description\":\"note\"}"));
+        update(id, device("k", "8.8.8.8")).andExpect(status().isOk()).andExpect(jsonPath("$.description").value("note"));
+        update(id, "{\"name\":\"k\",\"host\":\"8.8.8.8\",\"type\":\"SERVER\",\"description\":\"\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.description").doesNotExist());
+    }
+
+    @Test void staleVersionIsConflict() throws Exception {
+        String id = id(create(device("v", "8.8.8.8")));
+        Number loaded = JsonPath.read(mvc.perform(get("/api/v1/devices/" + id).header("Authorization", admin))
+                .andReturn().getResponse().getContentAsString(), "$.version");
+        String body = "{\"name\":\"v\",\"host\":\"8.8.8.8\",\"type\":\"SERVER\",\"location\":\"%s\",\"version\":" + loaded + "}";
+        update(id, body.formatted("first")).andExpect(status().isOk());
+        update(id, body.formatted("stale")).andExpect(status().isConflict());
+        mvc.perform(get("/api/v1/devices/" + id).header("Authorization", admin)).andExpect(jsonPath("$.location").value("first"));
+    }
 }

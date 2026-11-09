@@ -34,7 +34,7 @@ import java.util.UUID;
 public class AuthService {
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
     private static final ApiException BAD_CREDENTIALS =
-            new ApiException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid username or password");
+            new ApiException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid username or password. Repeated failures temporarily block sign-in.");
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final AppUserRepository users;
@@ -68,8 +68,9 @@ public class AuthService {
             throw BAD_CREDENTIALS;
         }
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(now)) {
-            throw new ApiException(HttpStatus.LOCKED, "Account locked",
-                    "Too many failed attempts. Try again later.");
+            // Same response and BCrypt cost as a wrong password, so a lockout does not reveal that the account exists.
+            encoder.matches(password, dummyHash);
+            throw BAD_CREDENTIALS;
         }
         if (!user.isEnabled() || !encoder.matches(password, user.getPasswordHash())) {
             int attempts = user.getFailedAttempts() + 1;

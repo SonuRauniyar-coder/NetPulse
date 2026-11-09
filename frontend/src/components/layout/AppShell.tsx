@@ -9,16 +9,16 @@ import { Button } from "@/components/ui/button";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useAuth, useCan } from "@/features/auth/AuthContext";
 import { api } from "@/lib/api";
 import { LiveProvider, useLiveConnected } from "@/lib/live";
 import { useTheme } from "@/lib/theme";
-import type { Device, Page, SystemInfo } from "@/lib/types";
+import type { AlertSummary, Device, Page, SystemInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/common";
 import { LogoMark } from "./Logo";
 
-interface NavItem { to: string; label: string; icon: LucideIcon }
+interface NavItem { to: string; label: string; icon: LucideIcon; adminOnly?: boolean }
 const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/devices", label: "Devices", icon: Server },
@@ -28,15 +28,21 @@ const NAV: NavItem[] = [
   { to: "/alerts", label: "Alerts", icon: Bell },
   { to: "/reports", label: "Reports", icon: FileText },
   { to: "/events", label: "Event Log", icon: ListTree },
-  { to: "/settings", label: "Settings", icon: Settings },
-  { to: "/users", label: "Users", icon: Users },
+  { to: "/settings", label: "Settings", icon: Settings, adminOnly: true },
+  { to: "/users", label: "Users", icon: Users, adminOnly: true },
 ];
+
+function useNav() {
+  const { admin } = useCan();
+  return NAV.filter((n) => admin || !n.adminOnly);
+}
 
 function readCollapsed() {
   try { return localStorage.getItem("np-sidebar") === "1"; } catch { return false; }
 }
 
 function Sidebar({ collapsed }: { collapsed: boolean }) {
+  const nav = useNav();
   return (
     <aside className={cn("sticky top-0 hidden h-screen shrink-0 flex-col border-r bg-sidebar md:flex", collapsed ? "w-14" : "w-56")}>
       <Link to="/" className="flex h-14 items-center gap-2.5 border-b px-3.5">
@@ -44,7 +50,7 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
         {!collapsed && <span className="font-semibold tracking-tight">NetPulse</span>}
       </Link>
       <nav aria-label="Main" className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        {NAV.map(({ to, label, icon: Icon }) => {
+        {nav.map(({ to, label, icon: Icon }) => {
           const link = (
             <NavLink to={to} end={to === "/"} aria-label={label}
               className={({ isActive }) => cn("flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm",
@@ -64,6 +70,7 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
 
 function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate();
+  const nav = useNav();
   const [q, setQ] = useState("");
   const { data } = useQuery({
     queryKey: ["devices", "palette", q],
@@ -88,7 +95,7 @@ function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (
           </CommandGroup>
         )}
         <CommandGroup heading="Pages">
-          {NAV.map(({ to, label, icon: Icon }) => <CommandItem key={to} value={label} onSelect={() => go(to)}><Icon aria-hidden /> {label}</CommandItem>)}
+          {nav.map(({ to, label, icon: Icon }) => <CommandItem key={to} value={label} onSelect={() => go(to)}><Icon aria-hidden /> {label}</CommandItem>)}
         </CommandGroup>
       </CommandList>
     </CommandDialog>
@@ -102,6 +109,19 @@ function LiveIndicator() {
       <span className={cn("size-2 rounded-full", live ? "bg-status-up" : "bg-status-neutral")} aria-hidden />
       {live ? "Live" : "Reconnecting"}
     </span>
+  );
+}
+
+function AlertBell() {
+  const { data } = useQuery({ queryKey: ["alerts", "summary"], queryFn: () => api<AlertSummary>("/alerts/summary"), refetchInterval: 30_000 });
+  const count = data?.active ?? 0;
+  return (
+    <Button variant="ghost" size="icon-sm" asChild aria-label={`Alerts, ${count} active`} className="relative">
+      <Link to="/alerts">
+        <Bell />
+        {count > 0 && <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-down px-1 font-mono text-[10px] font-semibold text-background">{count > 99 ? "99+" : count}</span>}
+      </Link>
+    </Button>
   );
 }
 
@@ -166,12 +186,7 @@ export function AppShell() {
             </button>
             <Button variant="ghost" size="icon-sm" aria-label="Search" className="lg:hidden" onClick={() => setPalette(true)}><Search /></Button>
             <LiveIndicator />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" asChild aria-label="Alerts"><Link to="/alerts"><Bell /></Link></Button>
-              </TooltipTrigger>
-              <TooltipContent>Alerting arrives in Phase 3</TooltipContent>
-            </Tooltip>
+            <AlertBell />
             <Button variant="ghost" size="icon-sm" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={toggle}>
               {theme === "dark" ? <Sun /> : <Moon />}
             </Button>

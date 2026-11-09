@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TargetValidatorTest {
-    private final TargetValidator v = new TargetValidator();
+    private final TargetValidator v = new TargetValidator(true);
 
     @ParameterizedTest
     @ValueSource(strings = {"8.8.8.8", "192.168.1.1", "10.0.0.1", "127.0.0.1", "example.com", "a.b-c.example.org", "router1", "2001:4860:4860::8888", "::1", "fe80::1"})
@@ -56,5 +56,24 @@ class TargetValidatorTest {
         assertThat(IpLiterals.isIpv6("1:2:3:4:5:6:7:8:9")).isFalse();
         assertThat(IpLiterals.isIpv6("1:2:3:4:5:6:7::8")).isFalse();
         assertThat(IpLiterals.isIpv6("gggg::1")).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"127.0.0.1", "::1", "::ffff:127.0.0.1", "169.254.169.254", "fe80::1", "localhost", "foo.localhost", "LOCALHOST.", "::127.0.0.1", "64:ff9b::7f00:1", "2002:7f00:1::", "2002:a9fe:a9fe::"})
+    void localTargetsRefusedByDefault(String host) {
+        assertThatThrownBy(() -> new TargetValidator(false).validateHost(host)).isInstanceOf(InvalidTargetException.class);
+    }
+
+    @Test void ipv6ThatCarriesAPublicAddressStaysAllowed() {
+        assertThat(new TargetValidator(false).validateHost("64:ff9b::808:808")).isEqualTo("64:ff9b:0:0:0:0:808:808");
+    }
+
+    @Test void loopbackStaysAllowedWhenLocalTargetsAre() {
+        assertThat(v.validateHost("::1")).isEqualTo("0:0:0:0:0:0:0:1");
+    }
+
+    @Test void privateLanTargetsStayAllowedByDefault() {
+        assertThat(new TargetValidator(false).validateHost("192.168.1.1")).isEqualTo("192.168.1.1");
+        assertThat(new TargetValidator(false).validateHost("10.0.0.1")).isEqualTo("10.0.0.1");
     }
 }

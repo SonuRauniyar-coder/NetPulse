@@ -4,6 +4,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+const backend = process.env.BACKEND_URL ?? "http://localhost:8080";
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
@@ -11,8 +13,8 @@ export default defineConfig({
     port: 5173,
     // Same-origin in dev, exactly like Nginx in prod: cookies and CSRF behave identically.
     proxy: {
-      "/api": { target: "http://localhost:8080", changeOrigin: false },
-      "/ws": { target: "ws://localhost:8080", ws: true, changeOrigin: false },
+      "/api": { target: backend, changeOrigin: false },
+      "/ws": { target: backend.replace(/^http/, "ws"), ws: true, changeOrigin: false },
     },
   },
   test: {

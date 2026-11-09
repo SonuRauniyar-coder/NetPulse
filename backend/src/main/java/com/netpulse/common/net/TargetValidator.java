@@ -1,5 +1,6 @@
 package com.netpulse.common.net;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.net.Inet4Address;
@@ -19,6 +20,11 @@ import java.util.regex.Pattern;
  * unspecified (0.0.0.0, ::), "this network" 0.0.0.0/8, multicast (224.0.0.0/4, ff00::/8),
  * limited broadcast 255.255.255.255 and the reserved 240.0.0.0/4 block.
  *
+ * <p>Loopback and link-local (including the 169.254.169.254 cloud metadata address) point at the monitoring host
+ * itself rather than the network, so they are refused unless {@code allow-local-targets} is on.
+ *
+ * <p>IPv6 forms that carry an IPv4 address (IPv4-compatible, NAT64 and 6to4) are judged by the address they carry.
+ *
  * <p>DNS rebinding: a hostname can resolve to a harmless address when the user saves it and to a forbidden
  * one later. So the engine calls {@link #resolve} on every check, validates the RESULTING address, and then
  * connects to that exact InetAddress - never to the hostname again.
@@ -28,6 +34,16 @@ public class TargetValidator {
 
     // RFC 1123 label: letters, digits, hyphen; 1-63 chars; must not start or end with '-'
     private static final Pattern LABEL = Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$");
+
+    private final boolean allowLocalTargets;
+
+    public TargetValidator(@Value("${netpulse.monitoring.allow-local-targets:false}") boolean allowLocalTargets) {
+        this.allowLocalTargets = allowLocalTargets;
+    }
+
+    public boolean allowsLocalTargets() {
+        return allowLocalTargets;
+    }
 
     /** Syntax + special-address check of a user-entered host. Returns a normalized form. No DNS. */
     public String validateHost(String raw) {
@@ -43,7 +59,12 @@ public class TargetValidator {
         if (host.contains(":")) throw new InvalidTargetException("'" + raw + "' is not a valid IPv6 address");
         if (looksLikeIpv4Attempt(host)) throw new InvalidTargetException("'" + raw + "' is not a valid IPv4 address");
         if (!isValidHostname(host)) throw new InvalidTargetException("'" + raw + "' is not a valid hostname");
-        return host.toLowerCase(Locale.ROOT);
+        String normalized = host.toLowerCase(Locale.ROOT);
+        String bare = normalized.endsWith(".") ? normalized.substring(0, normalized.length() - 1) : normalized;
+        if (!allowLocalTargets && (bare.equals("localhost") || bare.endsWith(".localhost"))) {
+            throw new InvalidTargetException(raw + " is the monitoring host itself");
+        }
+        return normalized;
     }
 
     public static boolean isValidHostname(String host) {
@@ -80,6 +101,19 @@ public class TargetValidator {
         throw new UnknownHostException(host);
     }
 
+    private static Optional<InetAddress> embeddedIpv4(byte[] v6) {
+        boolean ipv4Compatible = Arrays.equals(v6, 0, 12, new byte[12], 0, 12);
+        boolean nat64 = v6[0] == 0 && v6[1] == 0x64 && (v6[2] & 0xff) == 0xff && (v6[3] & 0xff) == 0x9b && Arrays.equals(v6, 4, 12, new byte[8], 0, 8);
+        boolean sixToFour = v6[0] == 0x20 && v6[1] == 0x02;
+        if (!ipv4Compatible && !nat64 && !sixToFour) return Optional.empty();
+        int start = sixToFour ? 2 : 12;
+        try {
+            return Optional.of(InetAddress.getByAddress(Arrays.copyOfRange(v6, start, start + 4)));
+        } catch (UnknownHostException e) {
+            throw new IllegalStateException(e);   // four bytes is always a valid length
+        }
+    }
+
     private static InetAddress[] sortV4First(InetAddress[] in) {
         return Arrays.stream(in).sorted((a, b) -> Boolean.compare(a instanceof Inet6Address, b instanceof Inet6Address))
                 .toArray(InetAddress[]::new);
@@ -89,6 +123,9 @@ public class TargetValidator {
         String text = a.getHostAddress();
         if (a.isAnyLocalAddress()) throw new InvalidTargetException(text + " is the unspecified address");
         if (a.isMulticastAddress()) throw new InvalidTargetException(text + " is a multicast address");
+        if (!allowLocalTargets && a.isLoopbackAddress()) throw new InvalidTargetException(text + " is a loopback address");
+        if (!allowLocalTargets && a.isLinkLocalAddress()) throw new InvalidTargetException(text + " is a link-local address");
+        if (a instanceof Inet6Address && !a.isLoopbackAddress()) embeddedIpv4(a.getAddress()).ifPresent(this::rejectSpecial);
         if (a instanceof Inet4Address) {
             int first = Byte.toUnsignedInt(a.getAddress()[0]);
             if (first == 0) throw new InvalidTargetException(text + " is in 0.0.0.0/8 ('this network')");

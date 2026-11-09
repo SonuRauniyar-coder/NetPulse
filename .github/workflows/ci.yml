@@ -10,8 +10,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "21", cache: maven }
-      - name: Install ping (the engine integration test uses the real tool)
-        run: sudo apt-get update && sudo apt-get install -y iputils-ping
+      - name: Install network tools (integration tests use the real ping and traceroute)
+        run: sudo apt-get update && sudo apt-get install -y iputils-ping traceroute iproute2
       - name: Unit and integration tests
         working-directory: backend
         run: ./mvnw -B verify

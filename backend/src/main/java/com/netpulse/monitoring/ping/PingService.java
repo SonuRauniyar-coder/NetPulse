@@ -39,10 +39,19 @@ public class PingService {
     public int probeCount() { return count; }
 
     public PingOutcome ping(InetAddress target) {
+        return ping(target, count, replyTimeout);
+    }
+
+    /** One quick probe, as used by the discovery sweep. */
+    public PingOutcome pingOnce(InetAddress target, Duration timeout) {
+        return ping(target, 1, timeout);
+    }
+
+    private PingOutcome ping(InetAddress target, int probes, Duration timeout) {
         try {
-            ProcessResult r = runner.run(PingCommandBuilder.build(os, target, count, replyTimeout),
-                    PingCommandBuilder.processTimeout(count, replyTimeout));
-            return parser.parse(r.output(), count);
+            ProcessResult r = runner.run(PingCommandBuilder.build(os, target, probes, timeout),
+                    PingCommandBuilder.processTimeout(probes, timeout));
+            return parser.parse(r.output(), probes);
         } catch (ProcessFailureException e) {
             PingErrorCategory c = switch (e.getReason()) {
                 case TOOL_MISSING -> PingErrorCategory.TOOL_MISSING;

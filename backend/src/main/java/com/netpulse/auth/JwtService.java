@@ -19,8 +19,7 @@ import java.util.UUID;
 
 /**
  * Issues and verifies short-lived access tokens (HS256-signed JWT).
- * Access tokens are stateless: the server does not store them, which is why they must be short-lived;
- * revocation happens by refusing to refresh (refresh tokens ARE stored, hashed).
+ * This class only checks the token itself; {@link SessionVerifier} also checks the account behind it.
  */
 @Service
 public class JwtService {
@@ -41,7 +40,7 @@ public class JwtService {
 
     public record AccessToken(String token, Instant expiresAt) { }
 
-    public record Principal(UUID userId, String username, Role role) { }
+    public record Principal(UUID userId, String username, Role role, Instant issuedAt, Instant expiresAt) { }
 
     public AccessToken issue(AppUser user) {
         Instant now = clock.instant();
@@ -64,7 +63,8 @@ public class JwtService {
                     .clock(() -> Date.from(clock.instant())).build()
                     .parseSignedClaims(token).getPayload();
             return Optional.of(new Principal(UUID.fromString(c.getSubject()),
-                    c.get("username", String.class), Role.valueOf(c.get("role", String.class))));
+                    c.get("username", String.class), Role.valueOf(c.get("role", String.class)),
+                    c.getIssuedAt().toInstant(), c.getExpiration().toInstant()));
         } catch (JwtException | IllegalArgumentException e) {
             return Optional.empty();
         }

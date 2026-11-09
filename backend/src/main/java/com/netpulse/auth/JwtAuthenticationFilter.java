@@ -15,10 +15,10 @@ import java.util.List;
 
 /** Reads "Authorization: Bearer <jwt>" and, if valid, authenticates the request. Invalid tokens -> anonymous -> 401. */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
-    private final JwtService jwtService;
+    private final SessionVerifier sessions;
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
-        this.jwtService = jwtService;
+    public JwtAuthenticationFilter(SessionVerifier sessions) {
+        this.sessions = sessions;
     }
 
     @Override
@@ -26,7 +26,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = req.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            jwtService.verify(header.substring(7)).ifPresent(p ->
+            sessions.verify(header.substring(7)).ifPresent(p ->
                     SecurityContextHolder.getContext().setAuthentication(toAuthentication(p)));
         }
         chain.doFilter(req, res);
