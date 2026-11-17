@@ -2,7 +2,6 @@
 
 Real-time network monitoring: ICMP, TCP, DNS and SNMP with live status, network engineering tools, alerting and a NOC-style interface.
 
-![Dashboard](docs/screenshots/dashboard.png)
 
 NetPulse measures real networks. Status comes from real `ping` processes, TCP handshakes and DNS queries. Synthetic data exists only in the separate, permanently labelled demo stack.
 
@@ -33,9 +32,6 @@ NetPulse measures real networks. Status comes from real `ping` processes, TCP ha
 - **Notifications** in the app, by email, and by Slack, Discord or Telegram webhook, with retries and backoff
 - **Admin, Operator and Viewer roles**, an audit log, a filterable event log, and uptime/SLA reports, both with CSV export
 
-![SNMP interfaces](docs/screenshots/snmp.png)
-![Alerts](docs/screenshots/alerts.png)
-![Subnet calculator](docs/screenshots/subnet.png)
 
 ## Quick start
 
