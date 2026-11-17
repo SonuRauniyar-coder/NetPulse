@@ -85,22 +85,26 @@ public class DemoDataSeeder implements ApplicationRunner {
         d.setLastRttMs(down ? null : s.baseRtt() * (s.finalStatus() == DeviceStatus.DEGRADED ? 40 : 1.05));
         d.setLastLossPct(down ? 100.0 : 0.0);
         d.setLastCheckedAt(end);
+        d.setResolvedIp(Character.isDigit(s.host().charAt(0)) ? s.host() : "203.0.113.10");
+        d.setCreatedAt(start);
         d.setStatusChangedAt(s.outageMinutes() > 0 ? end.minus(Duration.ofHours(s.outageHoursAgo())) : start);
         devices.saveAndFlush(d);
 
         Instant outageStart = end.minus(Duration.ofHours(s.outageHoursAgo()));
-        Instant outageEnd = outageStart.plus(Duration.ofMinutes(s.outageMinutes()));
+        // A device that is DOWN now is still inside its outage; one that is DEGRADED now has been for 40 minutes.
+        Instant outageEnd = down ? end.plusSeconds(60) : outageStart.plus(Duration.ofMinutes(s.outageMinutes()));
+        Instant degradedFrom = s.finalStatus() == DeviceStatus.DEGRADED ? end.minus(Duration.ofMinutes(40)) : end.plus(Duration.ofDays(1));
         jdbc.update("""
                 with series as (
                     select t, case when t >= ? and t < ? then 'DOWN'
-                                   when random() < ? then 'DEGRADED' else 'UP' end as st
+                                   when t >= ? or random() < ? then 'DEGRADED' else 'UP' end as st
                     from generate_series(?::timestamptz, ?::timestamptz, interval '5 minutes') t)
                 insert into device_check (device_id, checked_at, verdict, status, error, duration_ms)
                 select ?, t, case st when 'DOWN' then 'FAIL' else st end, st,
                        case st when 'UP' then 'All checks passed' when 'DOWN' then 'All checks failed (demo)' else 'High latency (demo)' end,
                        3000 + (random() * 3000)::int
                 from series""",
-                Timestamp.from(outageStart), Timestamp.from(outageEnd), s.degradedChance(), Timestamp.from(start), Timestamp.from(end), d.getId());
+                Timestamp.from(outageStart), Timestamp.from(outageEnd), Timestamp.from(degradedFrom), s.degradedChance(), Timestamp.from(start), Timestamp.from(end), d.getId());
         jdbc.update("""
                 insert into ping_result (check_id, packets_sent, packets_received, loss_pct, rtt_min, rtt_avg, rtt_max, jitter)
                 select id, 4, r, (4 - r) * 25.0,

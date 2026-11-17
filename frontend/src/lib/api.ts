@@ -11,12 +11,11 @@ export class ApiError extends Error {
 }
 
 let accessToken: string | null = null;
+let expiresAt = 0;
 let refreshing: Promise<TokenResponse> | null = null;
 let onExpired: () => void = () => {};
 
 export const setSessionExpiredHandler = (fn: () => void) => { onExpired = fn; };
-export const getAccessToken = () => accessToken;
-export const setAccessToken = (t: string | null) => { accessToken = t; };
 
 function readCookie(name: string): string | null {
   const row = document.cookie.split("; ").find((c) => c.startsWith(name + "="));
@@ -48,18 +47,34 @@ async function authPost<T>(path: string, body?: unknown): Promise<T> {
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
+function remember(t: TokenResponse) {
+  accessToken = t.accessToken;
+  expiresAt = Date.parse(t.expiresAt);
+}
+
 export async function login(username: string, password: string) {
   const t = await authPost<TokenResponse>("login", { username, password });
-  accessToken = t.accessToken;
+  remember(t);
   return t;
 }
 
 /** Single-flight: refresh tokens rotate, so two parallel refreshes would look like token theft to the server. */
 export function refreshSession(): Promise<TokenResponse> {
-  refreshing ??= authPost<TokenResponse>("refresh")
-    .then((t) => { accessToken = t.accessToken; return t; })
+  if (refreshing) return refreshing;
+  const doRefresh = () => authPost<TokenResponse>("refresh");
+  // The Web Lock also serializes across browser tabs, which share the cookie but not this module's state.
+  const serialized = navigator.locks ? navigator.locks.request("np-refresh", doRefresh) : doRefresh();
+  refreshing = (serialized as Promise<TokenResponse>)
+    .then((t) => { remember(t); return t; })
     .finally(() => { refreshing = null; });
   return refreshing;
+}
+
+/** Returns a token valid for at least 30 more seconds, refreshing only when needed. */
+export async function freshAccessToken(): Promise<string | null> {
+  if (accessToken && expiresAt - Date.now() > 30_000) return accessToken;
+  await refreshSession();
+  return accessToken;
 }
 
 export async function logout() {

@@ -17,6 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -67,7 +68,10 @@ public class SecurityConfig {
             .csrf(c -> c.csrfTokenRepository(csrfRepo)
                     // plain (non-XOR) handler: the SPA sends back the raw cookie value
                     .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                    .requireCsrfProtectionMatcher(csrfMatcher))
+                    .requireCsrfProtectionMatcher(csrfMatcher)
+                    // The default strategy rotates the token whenever a request authenticates. Every JWT request
+                    // "authenticates", so a concurrent API call would invalidate a token an auth POST is about to use.
+                    .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
             .cors(c -> c.configurationSource(corsSource(props)))
             .headers(h -> h
                     .referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))

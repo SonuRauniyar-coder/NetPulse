@@ -133,6 +133,15 @@ class AuthIT extends IntegrationTestBase {
         assertThat(refresh(refresh).getStatus()).isEqualTo(401);
     }
 
+    /** Regression: a JWT-authenticated call must not rotate the CSRF cookie out from under a concurrent refresh. */
+    @Test void bearerRequestDoesNotRotateCsrfCookie() throws Exception {
+        String token = mapper.readTree(login("admin", PASSWORD).getContentAsString()).get("accessToken").asText();
+        Cookie csrf = csrfCookie();
+        MockHttpServletResponse r = mvc.perform(get("/api/v1/devices").cookie(csrf).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andReturn().getResponse();
+        assertThat(r.getCookie("XSRF-TOKEN")).isNull();
+    }
+
     @Test void healthIsPublicButMetricsListIsNot() throws Exception {
         mvc.perform(get("/actuator/health")).andExpect(status().isOk());
         mvc.perform(get("/actuator/metrics")).andExpect(status().isUnauthorized());
