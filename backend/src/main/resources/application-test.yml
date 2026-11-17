@@ -1,0 +1,11 @@
+netpulse:
+  security:
+    jwt-secret: test-secret-test-secret-test-secret-0123456789
+    cookie-secure: false
+    admin-username: admin
+    admin-password: Test-Admin-Pass-1!
+  monitoring:
+    enabled: false                   # integration tests drive checks explicitly
+springdoc:
+  api-docs:
+    enabled: true

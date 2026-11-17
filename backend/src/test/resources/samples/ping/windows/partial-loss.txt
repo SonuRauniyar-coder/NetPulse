@@ -1,0 +1,11 @@
+
+Pinging 10.0.0.5 with 32 bytes of data:
+Reply from 10.0.0.5: bytes=32 time=10ms TTL=64
+Request timed out.
+Reply from 10.0.0.5: bytes=32 time=20ms TTL=64
+Reply from 10.0.0.5: bytes=32 time=15ms TTL=64
+
+Ping statistics for 10.0.0.5:
+    Packets: Sent = 4, Received = 3, Lost = 1 (25% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 10ms, Maximum = 20ms, Average = 15ms

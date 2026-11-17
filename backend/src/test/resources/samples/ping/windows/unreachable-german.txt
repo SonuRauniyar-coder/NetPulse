@@ -1,0 +1,6 @@
+
+Ping wird ausgefuehrt fuer 10.0.0.99 mit 32 Bytes Daten:
+Antwort von 10.0.0.2: Zielhost nicht erreichbar.
+
+Ping-Statistik fuer 10.0.0.99:
+    Pakete: Gesendet = 1, Empfangen = 1, Verloren = 0

@@ -1,0 +1,9 @@
+PING 10.0.0.5 (10.0.0.5): 56 data bytes
+64 bytes from 10.0.0.5: icmp_seq=0 ttl=64 time=10.000 ms
+Request timeout for icmp_seq 1
+64 bytes from 10.0.0.5: icmp_seq=2 ttl=64 time=20.000 ms
+64 bytes from 10.0.0.5: icmp_seq=3 ttl=64 time=15.000 ms
+
+--- 10.0.0.5 ping statistics ---
+4 packets transmitted, 3 packets received, 25.0% packet loss
+round-trip min/avg/max/stddev = 10.000/15.000/20.000/4.082 ms

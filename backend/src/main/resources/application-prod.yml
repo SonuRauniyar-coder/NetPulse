@@ -1,0 +1,12 @@
+# Production: every secret must come from the environment (see .env.example).
+server:
+  forward-headers-strategy: framework   # trust X-Forwarded-* from the Nginx reverse proxy only
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+management:
+  endpoint:
+    health:
+      show-details: never
