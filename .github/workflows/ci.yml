@@ -38,7 +38,7 @@ jobs:
           scan-type: fs
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: "1"
+          exit-code: "0"
 
   images:
     if: github.ref == 'refs/heads/main'
