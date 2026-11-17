@@ -82,6 +82,14 @@ class WebSocketAuthIT extends IntegrationTestBase {
         assertThat(h.error).succeedsWithin(5, TimeUnit.SECONDS);
     }
 
+    @Test void socketClosesWhenTheAccountIsDeleted() throws Exception {
+        String token = tokenFor(Role.VIEWER);
+        ErrorCapturing h = new ErrorCapturing();
+        connect(token, h).get(10, TimeUnit.SECONDS);
+        users.deleteById(jwt.verify(token.substring(7)).orElseThrow().userId());
+        assertThat(h.error).succeedsWithin(10, TimeUnit.SECONDS);
+    }
+
     @Test void clientsCannotPublish() throws Exception {
         ErrorCapturing h = new ErrorCapturing();
         StompSession session = connect(tokenFor(Role.ADMIN), h).get(10, TimeUnit.SECONDS);

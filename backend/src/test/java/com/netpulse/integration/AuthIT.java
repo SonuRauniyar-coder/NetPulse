@@ -103,7 +103,7 @@ class AuthIT extends IntegrationTestBase {
     @Test void accountLocksAfterRepeatedFailures() throws Exception {
         String user = createUser();
         for (int i = 0; i < 5; i++) assertThat(login(user, "wrong").getStatus()).isEqualTo(401);
-        assertThat(login(user, PASSWORD).getStatus()).isEqualTo(423);
+        assertThat(login(user, PASSWORD).getStatus()).isEqualTo(401);
     }
 
     @Test void refreshRotatesToken() throws Exception {

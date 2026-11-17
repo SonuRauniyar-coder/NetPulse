@@ -1,5 +1,6 @@
 package com.netpulse.dashboard;
 
+import com.netpulse.alert.AlertService;
 import com.netpulse.dashboard.DashboardDtos.SlowDevice;
 import com.netpulse.dashboard.DashboardDtos.Summary;
 import com.netpulse.monitoring.result.MetricRange;
@@ -26,9 +27,11 @@ import java.util.UUID;
 public class DashboardController {
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final AlertService alerts;
 
-    public DashboardController(JdbcTemplate jdbc, Clock clock) {
+    public DashboardController(JdbcTemplate jdbc, Clock clock, AlertService alerts) {
         this.jdbc = jdbc;
+        this.alerts = alerts;
         this.clock = clock;
     }
 
@@ -51,7 +54,8 @@ public class DashboardController {
         var recent = jdbc.query(MonitoringQueryService.EVENT_SELECT + " order by e.occurred_at desc limit 10", MonitoringQueryService.EVENT);
 
         return new Summary(total, counts.getOrDefault("UP", 0L), counts.getOrDefault("DEGRADED", 0L), counts.getOrDefault("DOWN", 0L),
-                counts.getOrDefault("UNKNOWN", 0L), counts.getOrDefault("PAUSED", 0L), avg, uptime, slowest, recent);
+                counts.getOrDefault("UNKNOWN", 0L), counts.getOrDefault("PAUSED", 0L), avg, uptime, slowest, recent,
+                alerts.summary().active(), alerts.recent(6));
     }
 
     /** Average latency across all devices, in the same buckets as the per-device charts. */

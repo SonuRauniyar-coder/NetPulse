@@ -1,5 +1,7 @@
 package com.netpulse.device;
 
+import com.netpulse.alert.AlertEngine;
+import com.netpulse.audit.AuditService;
 import com.netpulse.common.config.NetPulseProperties;
 import com.netpulse.common.error.ApiException;
 import com.netpulse.common.net.InvalidTargetException;
@@ -7,6 +9,7 @@ import com.netpulse.common.net.IpLiterals;
 import com.netpulse.common.net.TargetValidator;
 import com.netpulse.device.dto.DeviceDtos.*;
 import com.netpulse.monitoring.result.CheckResultStore;
+import com.netpulse.settings.SettingsService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -30,20 +33,27 @@ public class DeviceService {
     private final TargetValidator validator;
     private final CheckResultStore results;
     private final NetPulseProperties props;
+    private final SettingsService settings;
+    private final AuditService audit;
+    private final AlertEngine alerts;
     private final Clock clock;
 
-    public DeviceService(DeviceRepository repo, DeviceMapper mapper, TargetValidator validator,
-                         CheckResultStore results, NetPulseProperties props, Clock clock) {
+    public DeviceService(DeviceRepository repo, DeviceMapper mapper, TargetValidator validator, CheckResultStore results,
+                         NetPulseProperties props, SettingsService settings, AuditService audit, AlertEngine alerts, Clock clock) {
         this.repo = repo;
         this.mapper = mapper;
         this.validator = validator;
         this.results = results;
         this.props = props;
+        this.settings = settings;
+        this.audit = audit;
+        this.alerts = alerts;
         this.clock = clock;
     }
 
     @Transactional(readOnly = true)
     public Page<DeviceResponse> list(DeviceStatus status, DeviceType type, String tag, String q, Pageable pageable) {
+        if (pageable.getOffset() > Integer.MAX_VALUE) throw ApiException.badRequest("page is out of range");
         for (Sort.Order o : pageable.getSort()) {
             if (!SORTABLE.contains(o.getProperty())) throw ApiException.badRequest("Cannot sort by '" + o.getProperty() + "'");
         }
@@ -67,6 +77,7 @@ public class DeviceService {
 
     @Transactional
     public DeviceResponse create(DeviceRequest req) {
+        rejectNulCharacters(req);
         String name = req.name().trim();
         if (repo.existsByNameIgnoreCase(name)) throw duplicateName(name);
         Device d = new Device();
@@ -76,12 +87,18 @@ public class DeviceService {
         d.setEnabled(enabled);
         d.resetMonitoringState(enabled ? DeviceStatus.UNKNOWN : DeviceStatus.PAUSED, enabled ? now : null);
         d.setStatusChangedAt(now);
-        return mapper.toResponse(repo.save(d));
+        Device saved = repo.save(d);
+        audit.record("DEVICE_CREATE", "device", saved.getId(), "Added '" + saved.getName() + "' (" + saved.getHost() + ")");
+        return mapper.toResponse(saved);
     }
 
     @Transactional
     public DeviceResponse update(UUID id, DeviceRequest req) {
+        rejectNulCharacters(req);
         Device d = load(id);
+        if (req.version() != null && req.version() != d.getVersion()) {
+            throw ApiException.conflict("This device was changed after you opened it. Reopen it to get the latest values.");
+        }
         String name = req.name().trim();
         if (repo.existsByNameIgnoreCaseAndIdNot(name, id)) throw duplicateName(name);
         String oldHost = d.getHost();
@@ -94,36 +111,47 @@ public class DeviceService {
         } else if (!oldHost.equals(d.getHost()) && d.isEnabled()) {
             // A different host means previous observations no longer apply.
             transition(d, DeviceStatus.UNKNOWN, "Host changed", now);
+            alerts.resolveForDevice(id, "Device host changed");
             d.resetMonitoringState(DeviceStatus.UNKNOWN, now);
         } else if (d.isEnabled() && d.getNextCheckAt() != null) {
             Instant soonest = now.plusSeconds(d.getCheckIntervalSeconds());
             if (d.getNextCheckAt().isAfter(soonest)) d.setNextCheckAt(soonest); // a shortened interval applies now
         }
+        audit.record("DEVICE_UPDATE", "device", id, "Edited '" + d.getName() + "'" + (oldHost.equals(d.getHost()) ? "" : " (host " + oldHost + " -> " + d.getHost() + ")"));
         return mapper.toResponse(d);
     }
 
     @Transactional
     public void delete(UUID id) {
-        repo.delete(load(id));
+        Device d = load(id);
+        repo.delete(d);
+        audit.record("DEVICE_DELETE", "device", id, "Deleted '" + d.getName() + "' (" + d.getHost() + ")");
     }
 
     @Transactional
     public DeviceResponse pause(UUID id) {
         Device d = load(id);
-        if (d.isEnabled()) setEnabled(d, false, clock.instant());
+        if (d.isEnabled()) {
+            setEnabled(d, false, clock.instant());
+            audit.record("DEVICE_PAUSE", "device", id, "Paused '" + d.getName() + "'");
+        }
         return mapper.toResponse(d);
     }
 
     @Transactional
     public DeviceResponse resume(UUID id) {
         Device d = load(id);
-        if (!d.isEnabled()) setEnabled(d, true, clock.instant());
+        if (!d.isEnabled()) {
+            setEnabled(d, true, clock.instant());
+            audit.record("DEVICE_RESUME", "device", id, "Resumed '" + d.getName() + "'");
+        }
         return mapper.toResponse(d);
     }
 
     /** Makes the device due now; the scheduler picks it up on its next tick (at most ~1s later). */
     @Transactional
     public DeviceResponse checkNow(UUID id) {
+        if (props.demoMode()) throw ApiException.conflict("Checks don't run in demo mode.");
         Device d = load(id);
         if (!d.isEnabled()) throw ApiException.conflict("Device is paused. Resume it to run checks.");
         d.setNextCheckAt(clock.instant());
@@ -139,11 +167,15 @@ public class DeviceService {
             case PAUSE -> devices.stream().filter(Device::isEnabled).forEach(d -> setEnabled(d, false, now));
             case RESUME -> devices.stream().filter(d -> !d.isEnabled()).forEach(d -> setEnabled(d, true, now));
         }
+        for (Device d : devices) {
+            audit.record("DEVICE_BULK_" + req.action(), "device", d.getId(), req.action() + " on '" + d.getName() + "'");
+        }
         return new BulkResponse(devices.size());
     }
 
     private void setEnabled(Device d, boolean enabled, Instant now) {
         d.setEnabled(enabled);
+        if (!enabled) alerts.resolveForDevice(d.getId(), "Monitoring paused");   // no more checks will arrive to clear them
         DeviceStatus next = enabled ? DeviceStatus.UNKNOWN : DeviceStatus.PAUSED;
         transition(d, next, enabled ? "Monitoring resumed" : "Monitoring paused", now);
         d.resetMonitoringState(next, enabled ? now : null);
@@ -161,9 +193,10 @@ public class DeviceService {
         d.setHost(validator.validateHost(req.host()));
         d.setType(req.type());
         d.setLocation(blankToNull(req.location()));
-        d.setDescription(blankToNull(req.description()));
+        // Omitted means "leave as is"; an empty string clears it.
+        if (req.description() != null) d.setDescription(blankToNull(req.description()));
         d.setCheckIntervalSeconds(req.checkIntervalSeconds() != null ? req.checkIntervalSeconds()
-                : props.monitoring().defaultIntervalSeconds());
+                : settings.current().defaultIntervalSeconds());
 
         d.getTags().clear();
         if (req.tags() != null) {
@@ -208,6 +241,15 @@ public class DeviceService {
     private String validateServer(String raw) {
         String s = blankToNull(raw);
         return s == null ? null : validator.validateHost(s);
+    }
+
+    /** PostgreSQL text cannot hold NUL, so these would otherwise surface as a misleading database conflict. */
+    private static void rejectNulCharacters(DeviceRequest req) {
+        List<String> texts = new ArrayList<>(Arrays.asList(req.name(), req.location(), req.description()));
+        if (req.ports() != null) req.ports().forEach(p -> texts.add(p.label()));
+        if (texts.stream().anyMatch(t -> t != null && t.indexOf('\0') >= 0)) {
+            throw ApiException.badRequest("Text fields must not contain NUL characters");
+        }
     }
 
     private Device load(UUID id) {

@@ -2,8 +2,10 @@ package com.netpulse.monitoring.engine;
 
 import com.netpulse.monitoring.status.Verdict;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -16,8 +18,12 @@ public class MonitoringMetrics {
     private final Counter skipped;
     private final Timer duration;
 
-    public MonitoringMetrics(MeterRegistry registry) {
+    public MonitoringMetrics(MeterRegistry registry, JdbcTemplate jdbc) {
         this.registry = registry;
+        Gauge.builder("netpulse.alerts.active", jdbc, j -> {
+            Long n = j.queryForObject("select count(*) from alert where state <> 'RESOLVED'", Long.class);
+            return n == null ? 0 : n;
+        }).register(registry);
         this.checksRun = registry.counter("netpulse.checks.run");
         this.skipped = registry.counter("netpulse.checks.skipped");
         this.duration = registry.timer("netpulse.check.duration");

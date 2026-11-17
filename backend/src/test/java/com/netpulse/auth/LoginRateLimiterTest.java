@@ -22,7 +22,7 @@ class LoginRateLimiterTest {
 
     private static NetPulseProperties props(int perMinute) {
         return new NetPulseProperties(false, new NetPulseProperties.Security("x", Duration.ofMinutes(15), Duration.ofDays(7),
-                false, List.of(), 5, Duration.ofMinutes(15), perMinute, null, null), null, null);
+                false, List.of(), 5, Duration.ofMinutes(15), perMinute, null, null), null, null, null, null, null, null, null);
     }
 
     @Test void blocksAfterCapacityThenRefills() {

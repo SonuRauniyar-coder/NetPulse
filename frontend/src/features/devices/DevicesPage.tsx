@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, MoreHorizontal, Pause, Pencil, Play, Plus, RefreshCw, Search, Server, ShieldAlert, Trash2 } from "lucide-react";
@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState, ErrorState, PageHeader, Panel, RelativeTime, RowsSkeleton, StatusBadge } from "@/components/common";
+import { useAuth } from "@/features/auth/AuthContext";
 import { api, del, post } from "@/lib/api";
 import { fmtMs, fmtPct } from "@/lib/format";
 import type { Device, Page } from "@/lib/types";
@@ -43,6 +44,7 @@ type Confirm = { title: string; description: string; run: () => void };
 
 export function DevicesPage() {
   const qc = useQueryClient();
+  const canWrite = useAuth().user?.role !== "VIEWER";
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState("");
   const search = useDebounced(q);
@@ -50,7 +52,13 @@ export function DevicesPage() {
   const [type, setType] = useState(ALL);
   const [tag, setTag] = useState(ALL);
   const [sort, setSort] = useState<{ field: string; dir: SortDir }>({ field: "name", dir: "asc" });
-  const [page, setPage] = useState(0);
+  // Kept in the URL (1-based) so reload and the back button return to the same page.
+  const page = Math.max(0, Math.floor(Number(params.get("page")) || 1) - 1);
+  const setPage = useCallback((next: number, replace = false) => setParams((current) => {
+    const updated = new URLSearchParams(current);
+    if (next > 0) updated.set("page", String(next + 1)); else updated.delete("page");
+    return updated;
+  }, { replace }), [setParams]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [form, setForm] = useState<{ open: boolean; device?: Device | null }>({ open: false });
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -58,7 +66,15 @@ export function DevicesPage() {
   useEffect(() => {
     if (params.get("new")) { setForm({ open: true }); setParams({}, { replace: true }); }
   }, [params, setParams]);
-  useEffect(() => { setPage(0); }, [search, status, type, tag]);
+  const filters = JSON.stringify([search, status, type, tag]);
+  const appliedFilters = useRef(filters);
+  useEffect(() => {
+    if (appliedFilters.current === filters) return;   // not on first render, or a reload would lose the page
+    appliedFilters.current = filters;
+    setPage(0, true);
+  }, [filters, setPage]);
+  // Bulk actions must only ever apply to rows the user can currently see.
+  useEffect(() => { setSelected(new Set()); }, [search, status, type, tag, page, sort]);
 
   const query = new URLSearchParams({ page: String(page), size: "25", sort: `${sort.field},${sort.dir}` });
   if (search) query.set("q", search);
@@ -67,6 +83,10 @@ export function DevicesPage() {
   if (tag !== ALL) query.set("tag", tag);
 
   const list = useQuery({ queryKey: ["devices", "list", query.toString()], queryFn: () => api<Page<Device>>(`/devices?${query}`), placeholderData: keepPreviousData, refetchInterval: 30_000 });
+  const totalPages = list.data?.page.totalPages;
+  useEffect(() => {
+    if (!list.isPlaceholderData && totalPages !== undefined && page > 0 && page >= totalPages) setPage(Math.max(totalPages - 1, 0), true);
+  }, [list.isPlaceholderData, totalPages, page, setPage]);
   const tags = useQuery({ queryKey: ["devices", "tags"], queryFn: () => api<string[]>("/devices/tags") });
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["devices"] }); void qc.invalidateQueries({ queryKey: ["dashboard"] }); };
 
@@ -102,7 +122,7 @@ export function DevicesPage() {
   return (
     <>
       <PageHeader title="Devices" description="Everything NetPulse checks, and how each one is doing."
-        action={<Button size="sm" onClick={() => setForm({ open: true })}><Plus /> Add device</Button>} />
+        action={canWrite ? <Button size="sm" onClick={() => setForm({ open: true })}><Plus /> Add device</Button> : undefined} />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative w-full sm:w-64">
@@ -127,26 +147,26 @@ export function DevicesPage() {
 
       <Panel>
         {list.isError ? <ErrorState message={list.error.message} onRetry={() => list.refetch()} />
-          : list.isPending ? <RowsSkeleton rows={8} />
+          : list.isPending || (rows.length === 0 && page > 0) ? <RowsSkeleton rows={8} />
           : rows.length === 0 ? (filtered
               ? <EmptyState icon={Search} title="No devices match" description="Try a different search or clear the filters." />
               : <EmptyState icon={Server} title="No devices yet" description="Add a router, server or website to start monitoring it."
-                  action={<Button size="sm" onClick={() => setForm({ open: true })}><Plus /> Add your first device</Button>} />)
+                  action={canWrite ? <Button size="sm" onClick={() => setForm({ open: true })}><Plus /> Add your first device</Button> : undefined} />)
           : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[880px] text-sm">
               <thead className="border-b text-xs text-muted-foreground">
                 <tr>
-                  <th scope="col" className="w-10 px-3 py-2.5"><Checkbox aria-label="Select all on this page" checked={allOnPage} onCheckedChange={togglePage} /></th>
+                  {canWrite && <th scope="col" className="w-10 px-3 py-2.5"><Checkbox aria-label="Select all on this page" checked={allOnPage} onCheckedChange={togglePage} /></th>}
                   <Th field="name">Name</Th><Th field="host">Host</Th><Th field="status">Status</Th><Th field="type">Type</Th>
                   <Th field="lastRttMs" right>Latency</Th><Th field="lastLossPct" right>Loss</Th><Th field="lastCheckedAt">Last check</Th>
-                  <th scope="col" className="w-10"><span className="sr-only">Actions</span></th>
+                  {canWrite && <th scope="col" className="w-10"><span className="sr-only">Actions</span></th>}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {rows.map((d) => (
                   <tr key={d.id} className="hover:bg-muted/50">
-                    <td className="px-3 py-2"><Checkbox aria-label={`Select ${d.name}`} checked={selected.has(d.id)} onCheckedChange={() => toggleRow(d.id)} /></td>
+                    {canWrite && <td className="px-3 py-2"><Checkbox aria-label={`Select ${d.name}`} checked={selected.has(d.id)} onCheckedChange={() => toggleRow(d.id)} /></td>}
                     <td className="px-3 py-2">
                       <Link to={`/devices/${d.id}`} className="font-medium hover:underline">{d.name}</Link>
                       {d.location && <p className="text-xs text-muted-foreground">{d.location}</p>}
@@ -161,7 +181,7 @@ export function DevicesPage() {
                     <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">{fmtMs(d.lastRttMs)}</td>
                     <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">{fmtPct(d.lastLossPct, 0)}</td>
                     <td className="px-3 py-2 text-xs"><RelativeTime iso={d.lastCheckedAt} /></td>
-                    <td className="px-2 py-2">
+                    {canWrite && <td className="px-2 py-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Actions for ${d.name}`}><MoreHorizontal /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
@@ -172,7 +192,7 @@ export function DevicesPage() {
                           <DropdownMenuItem variant="destructive" onSelect={() => setConfirm({ title: `Delete ${d.name}?`, description: "Its monitoring history is permanently removed.", run: () => act.mutate(async () => { await del(`/devices/${d.id}`); toast.success(`Deleted ${d.name}`); }) })}><Trash2 /> Delete</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>

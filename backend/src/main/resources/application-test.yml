@@ -1,4 +1,5 @@
 netpulse:
+  credential-encryption-key: dGVzdC1vbmx5LWtleS10ZXN0LW9ubHkta2V5LTAxMjM=
   security:
     jwt-secret: test-secret-test-secret-test-secret-0123456789
     cookie-secure: false
@@ -7,6 +8,7 @@ netpulse:
     login-rate-limit-per-minute: 1000
   monitoring:
     enabled: false                   # integration tests drive checks explicitly
+    allow-local-targets: true        # loopback is the only target tests can rely on
 springdoc:
   api-docs:
     enabled: true

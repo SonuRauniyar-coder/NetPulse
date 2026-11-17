@@ -1,6 +1,6 @@
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as ReTooltip, XAxis, YAxis } from "recharts";
-import { fmtClock, fmtDateTime } from "@/lib/format";
-import type { MetricPoint, Range, UptimeSegment } from "@/lib/types";
+import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as ReTooltip, XAxis, YAxis } from "recharts";
+import { fmtBps, fmtClock, fmtDateTime } from "@/lib/format";
+import type { MetricPoint, Range, SnmpSpark, UptimeSegment } from "@/lib/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -85,6 +85,42 @@ export function UptimeBar({ segments }: { segments: UptimeSegment[] }) {
         ))}
       </div>
       <div className="mt-1.5 flex justify-between text-xs text-muted-foreground"><span>24h ago</span><span>Now</span></div>
+    </div>
+  );
+}
+
+/** Traffic of the busier direction, the same figure utilization is computed from. One series, so no legend. */
+export function TrafficSparkline({ samples, label }: { samples: SnmpSpark[]; label: string }) {
+  if (samples.length < 2) return <span className="text-xs text-muted-foreground">Collecting…</span>;
+  const data = samples.map((s) => ({ t: s.t, bps: Math.max(s.inBps, s.outBps) }));
+  return (
+    <div className="h-8 w-32" role="img" aria-label={`Recent traffic on ${label}`}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 4, right: 2, bottom: 4, left: 2 }}>
+          <YAxis hide domain={[0, "auto"]} />
+          <ReTooltip cursor={{ stroke: "var(--muted-foreground)", strokeWidth: 1 }} wrapperStyle={{ zIndex: 20 }}
+            content={({ active, payload }) => active && payload?.length ? (
+              <div className="rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-sm">
+                <p className="font-mono">{fmtBps(payload[0].value as number)}</p>
+                <p className="text-muted-foreground">{fmtClock(payload[0].payload.t)}</p>
+              </div>) : null} />
+          <Line type="monotone" dataKey="bps" stroke="var(--chart-line)" strokeWidth={2} dot={false} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/** The number beside the bar carries the value, so color never has to. */
+export function UtilizationBar({ pct }: { pct?: number }) {
+  if (pct == null) return <span className="font-mono text-xs text-muted-foreground">—</span>;
+  const width = Math.min(100, Math.max(pct > 0 ? 2 : 0, pct));
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-status-empty" aria-hidden>
+        <div className="h-full rounded-full" style={{ width: `${width}%`, background: "var(--chart-line)" }} />
+      </div>
+      <span className="font-mono text-xs tabular-nums">{pct.toFixed(1)}%</span>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 package com.netpulse.dashboard;
 
+import com.netpulse.alert.AlertService;
 import com.netpulse.monitoring.result.MonitoringDtos.StatusEventDto;
 
 import java.util.List;
@@ -13,5 +14,6 @@ public final class DashboardDtos {
     /** avgLatencyMs / networkUptimePct are null when nothing has been measured yet. */
     public record Summary(long total, long up, long degraded, long down, long unknown, long paused,
                           Double avgLatencyMs, Double networkUptimePct,
-                          List<SlowDevice> slowest, List<StatusEventDto> recentChanges) { }
+                          List<SlowDevice> slowest, List<StatusEventDto> recentChanges,
+                          long activeAlerts, List<AlertService.AlertDto> recentAlerts) { }
 }

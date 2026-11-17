@@ -29,23 +29,25 @@ public final class DeviceDtos {
             @NotNull(message = "Type is required") DeviceType type,
             @Size(max = 100) String location,
             @Size(max = 500) String description,
-            @Size(max = 10, message = "At most 10 tags") Set<@Pattern(regexp = "[A-Za-z0-9._-]{1,32}", message = "Tags: letters, digits, . _ - (max 32)") String> tags,
+            @Size(max = 10, message = "At most 10 tags") Set<@NotNull(message = "Tags must not be null") @Pattern(regexp = "[A-Za-z0-9._-]{1,32}", message = "Tags: letters, digits, . _ - (max 32)") String> tags,
             @Min(value = 10, message = "Interval must be at least 10 seconds") @Max(value = 3600, message = "Interval must be at most 3600 seconds") Integer checkIntervalSeconds,
             Boolean enabled,
-            @Size(max = 32, message = "At most 32 ports") List<@Valid PortDto> ports,
-            @Size(max = 16, message = "At most 16 DNS checks") List<@Valid DnsCheckDto> dnsChecks) { }
+            @Size(max = 32, message = "At most 32 ports") List<@NotNull(message = "Ports must not be null") @Valid PortDto> ports,
+            @Size(max = 16, message = "At most 16 DNS checks") List<@NotNull(message = "DNS checks must not be null") @Valid DnsCheckDto> dnsChecks,
+            /** Version the client loaded. When present, a save over a newer version is rejected with 409. */
+            Long version) { }
 
     public record DeviceResponse(
             UUID id, String name, String host, DeviceType type, String location, String description,
             Set<String> tags, int checkIntervalSeconds, boolean enabled,
             DeviceStatus status, boolean icmpBlocked, String resolvedIp, Double lastRttMs, Double lastLossPct,
             Instant lastCheckedAt, Instant nextCheckAt, Instant statusChangedAt, Instant createdAt, Instant updatedAt,
-            List<PortDto> ports, List<DnsCheckDto> dnsChecks) { }
+            List<PortDto> ports, List<DnsCheckDto> dnsChecks, long version) { }
 
     public enum BulkAction { PAUSE, RESUME, DELETE }
 
     public record BulkRequest(
-            @NotEmpty(message = "Select at least one device") @Size(max = 500) List<UUID> ids,
+            @NotEmpty(message = "Select at least one device") @Size(max = 500) List<@NotNull(message = "Device id must not be null") UUID> ids,
             @NotNull BulkAction action) { }
 
     public record BulkResponse(int affected) { }

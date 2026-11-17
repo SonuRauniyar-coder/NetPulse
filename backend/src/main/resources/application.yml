@@ -24,8 +24,21 @@ spring:
     default-property-inclusion: non_null
     serialization:
       write-dates-as-timestamps: false
+    deserialization:
+      accept-float-as-int: false
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  mail:
+    host: ${SMTP_HOST:}              # empty = email channels report "SMTP not configured"
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
 
 server:
   port: ${SERVER_PORT:8080}
@@ -34,6 +47,9 @@ server:
     include-stacktrace: never
 
 management:
+  health:
+    mail:
+      enabled: false       # a mail outage must not mark the monitoring service unhealthy
   endpoints:
     web:
       exposure:
@@ -60,6 +76,7 @@ springdoc:
 
 netpulse:
   demo-mode: false
+  credential-encryption-key: ${CREDENTIAL_ENCRYPTION_KEY:}   # base64 of 32 bytes; openssl rand -base64 32
   security:
     jwt-secret: ${JWT_SECRET:}                 # >= 32 bytes; required
     access-token-ttl: ${ACCESS_TOKEN_TTL:15m}
@@ -73,6 +90,7 @@ netpulse:
     admin-password: ${ADMIN_PASSWORD:}
   monitoring:
     enabled: true
+    allow-local-targets: ${ALLOW_LOCAL_TARGETS:false}
     max-concurrent-checks: ${MAX_CONCURRENT_CHECKS:32}
     dispatch-batch-size: 200
     default-interval-seconds: 60
@@ -90,3 +108,31 @@ netpulse:
     raw-days: 7
     rollup-days: 90
     delete-batch-size: 5000
+  traceroute:
+    max-hops: 30
+    probes-per-hop: 3
+    probe-timeout: 2s
+    run-timeout: 120s
+    max-silent-hops: 5          # stop after this many consecutive hops with no reply at all
+    max-concurrent: 4
+    per-user-per-minute: 6
+  discovery:
+    # Only ranges inside these may be swept. Public space stays blocked unless an admin adds it.
+    authorized-cidrs: ${SCAN_AUTHORIZED_CIDRS:127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+    min-prefix: 22              # largest allowed scan: /22 = 1024 addresses
+    max-concurrent-probes: 64
+    probe-timeout: 1s
+    max-duration: 5m
+    max-concurrent-scans: 1
+    per-user-per-minute: 3
+  snmp:
+    timeout: 3s
+    retries: 1
+    max-concurrent-polls: 16
+    default-interval-seconds: 60
+    max-interfaces: 1024
+  notifications:
+    mail-from: ${MAIL_FROM:netpulse@localhost}
+    max-attempts: 6
+    initial-backoff: 30s
+    webhook-timeout: 10s

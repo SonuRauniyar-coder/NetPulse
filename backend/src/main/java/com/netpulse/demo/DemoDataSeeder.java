@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * SYNTHETIC data for screenshots. Only exists in the "demo" profile, which uses its own database and turns the
@@ -67,6 +68,8 @@ public class DemoDataSeeder implements ApplicationRunner {
         Instant start = end.minus(Duration.ofDays(7));
         for (Spec s : SPECS) seed(s, start, end);
         rollups.rollup(start, end.plusSeconds(1));
+        seedInterfaces(end);
+        seedAlerts(end);
         log.info("Seeded {} synthetic demo devices", SPECS.size());
     }
 
@@ -130,5 +133,52 @@ public class DemoDataSeeder implements ApplicationRunner {
     private void insertEvent(Device d, String from, String to, String reason, Instant at) {
         jdbc.update("insert into status_event (device_id, from_status, to_status, reason, occurred_at) values (?, ?, ?, ?, ?)",
                 d.getId(), from, to, reason, Timestamp.from(at));
+    }
+
+    private UUID deviceId(String name) {
+        return jdbc.queryForObject("select id from device where name = ?", UUID.class, name);
+    }
+
+    /** Stored credentials are a placeholder that can never be decrypted; the poller doesn't run in demo mode. */
+    private void seedInterfaces(Instant end) {
+        UUID id = deviceId("core-rtr-01");
+        jdbc.update("""
+                insert into snmp_config (device_id, enabled, version, port, interval_seconds, credentials, sys_name, sys_descr, sys_location,
+                                         sys_uptime_ticks, last_poll_at, last_success_at)
+                values (?, true, 'V3', 161, 60, 'demo-not-a-secret', 'core-rtr-01', 'Synthetic demo router', 'DC1 / Rack A1', 864000000, ?, ?)""",
+                id, Timestamp.from(end), Timestamp.from(end));
+        Object[][] interfaces = {
+                {1, "GigabitEthernet0/0", 1, 1_000_000_000L, 0.42}, {2, "GigabitEthernet0/1", 1, 1_000_000_000L, 0.71},
+                {3, "GigabitEthernet0/2", 2, 1_000_000_000L, 0.0}, {4, "TenGigabitEthernet1/0", 1, 10_000_000_000L, 0.18}};
+        for (Object[] i : interfaces) {
+            long speed = (long) i[3];
+            double load = (double) i[4];
+            jdbc.update("""
+                    insert into snmp_interface (device_id, if_index, if_descr, admin_status, oper_status, speed_bps, counter_bits, in_bps, out_bps, utilization_pct, in_errors, out_errors, last_seen_at)
+                    values (?, ?, ?, 1, ?, ?, 64, ?, ?, ?, 0, 0, ?)""",
+                    id, i[0], i[1], i[2], speed, speed * load * 0.8, speed * load, load * 100, Timestamp.from(end));
+            if (load > 0) {
+                jdbc.update("""
+                        insert into snmp_sample (device_id, if_index, sampled_at, in_bps, out_bps, utilization_pct)
+                        select ?, ?, t, b * 0.8, b, b * 100.0 / ? from (
+                            select t, ? * (0.75 + random() * 0.5) b from generate_series(?::timestamptz - interval '59 minutes', ?::timestamptz, interval '1 minute') t) s""",
+                        id, i[0], speed, speed * load, Timestamp.from(end), Timestamp.from(end));
+            }
+        }
+    }
+
+    private void seedAlerts(Instant end) {
+        UUID down = UUID.randomUUID();
+        UUID latency = UUID.randomUUID();
+        jdbc.update("insert into alert_rule (id, name, type, severity, duration_seconds) values (?, 'Device down (demo)', 'DEVICE_DOWN', 'CRITICAL', 60)", down);
+        jdbc.update("insert into alert_rule (id, name, type, severity, threshold, duration_seconds) values (?, 'High latency (demo)', 'RTT_ABOVE', 'WARNING', 100, 300)", latency);
+        jdbc.update("""
+                insert into alert (id, rule_id, rule_name, device_id, severity, state, message, triggered_at)
+                values (?, ?, 'Device down (demo)', ?, 'CRITICAL', 'TRIGGERED', 'access-sw-4f is down', ?)""",
+                UUID.randomUUID(), down, deviceId("access-sw-4f"), Timestamp.from(end.minus(Duration.ofMinutes(58))));
+        jdbc.update("""
+                insert into alert (id, rule_id, rule_name, device_id, severity, state, message, value, triggered_at, acknowledged_at, acknowledged_by)
+                values (?, ?, 'High latency (demo)', ?, 'WARNING', 'ACKNOWLEDGED', 'app-srv-01 RTT is 156 ms, above the 100 ms limit', 156, ?, ?, 'demo')""",
+                UUID.randomUUID(), latency, deviceId("app-srv-01"), Timestamp.from(end.minus(Duration.ofMinutes(35))), Timestamp.from(end.minus(Duration.ofMinutes(20))));
     }
 }

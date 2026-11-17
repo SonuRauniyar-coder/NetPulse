@@ -2,7 +2,7 @@ package com.netpulse.common.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.netpulse.auth.JwtAuthenticationFilter;
-import com.netpulse.auth.JwtService;
+import com.netpulse.auth.SessionVerifier;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -55,7 +55,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, JwtService jwtService, NetPulseProperties props,
+    public SecurityFilterChain filterChain(HttpSecurity http, SessionVerifier sessions, NetPulseProperties props,
                                            ObjectMapper mapper) throws Exception {
         CookieCsrfTokenRepository csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrfRepo.setCookiePath("/");
@@ -87,6 +87,16 @@ public class SecurityConfig {
                     .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll() // disabled in prod
                     .requestMatchers("/ws", "/ws/**").permitAll()   // authenticated at STOMP CONNECT, see WebSocketAuthInterceptor
                     .requestMatchers("/error").permitAll()
+                    // Mirrors the @PreAuthorize rules so a caller without the role gets 403 before the body is validated.
+                    .requestMatchers("/api/v1/users/**", "/api/v1/audit/**", "/api/v1/notifications/**").hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.PUT, "/api/v1/settings").hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/alert-rules/**").hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.PUT, "/api/v1/alert-rules/**").hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.DELETE, "/api/v1/alert-rules/**").hasRole("ADMIN")
+                    .requestMatchers("/api/v1/traceroute/**", "/api/v1/discovery/**").hasAnyRole("ADMIN", "OPERATOR")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/devices/**", "/api/v1/maintenance-windows/**", "/api/v1/alerts/*/acknowledge").hasAnyRole("ADMIN", "OPERATOR")
+                    .requestMatchers(HttpMethod.PUT, "/api/v1/devices/**").hasAnyRole("ADMIN", "OPERATOR")
+                    .requestMatchers(HttpMethod.DELETE, "/api/v1/devices/**", "/api/v1/maintenance-windows/**").hasAnyRole("ADMIN", "OPERATOR")
                     .anyRequest().authenticated())
             .exceptionHandling(e -> e
                     .authenticationEntryPoint((req, res, ex) ->
@@ -95,7 +105,7 @@ public class SecurityConfig {
                             ex instanceof CsrfException ? "Missing or invalid CSRF token." : "You do not have permission for this action.")))
             .httpBasic(b -> b.disable())
             .formLogin(f -> f.disable())
-            .addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(new JwtAuthenticationFilter(sessions), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 

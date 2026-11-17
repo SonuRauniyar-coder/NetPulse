@@ -1,5 +1,7 @@
 package com.netpulse.monitoring.engine;
 
+import com.netpulse.alert.AlertEngine;
+import com.netpulse.alert.RuleEvaluator;
 import com.netpulse.common.config.NetPulseProperties;
 import com.netpulse.common.net.InvalidTargetException;
 import com.netpulse.common.net.TargetValidator;
@@ -23,7 +25,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.*;
@@ -39,13 +43,14 @@ public class CheckRunner {
     private final DnsChecker dns;
     private final CheckRecorder recorder;
     private final LivePublisher publisher;
+    private final AlertEngine alerts;
     private final ExecutorService executor;
     private final MonitoringMetrics metrics;
     private final Duration cycleTimeout;
     private final Clock clock;
 
     public CheckRunner(DeviceSnapshotLoader loader, TargetValidator validator, PingService ping, TcpChecker tcp,
-                       DnsChecker dns, CheckRecorder recorder, LivePublisher publisher, ExecutorService monitoringExecutor,
+                       DnsChecker dns, CheckRecorder recorder, LivePublisher publisher, AlertEngine alerts, ExecutorService monitoringExecutor,
                        MonitoringMetrics metrics, NetPulseProperties props, Clock clock) {
         this.loader = loader;
         this.validator = validator;
@@ -54,6 +59,7 @@ public class CheckRunner {
         this.dns = dns;
         this.recorder = recorder;
         this.publisher = publisher;
+        this.alerts = alerts;
         this.executor = monitoringExecutor;
         this.metrics = metrics;
         this.cycleTimeout = props.monitoring().cycleTimeout();
@@ -82,6 +88,10 @@ public class CheckRunner {
         recorder.record(device.id(), device.host(), observation, ip, started, durationMs).ifPresent(r -> {
             metrics.recordCycle(r.assessment().verdict(), durationMs);
             publisher.publishCheck(device, r);
+            // After commit, so an alert is only ever raised for a result that really was stored.
+            Map<Integer, TcpState> ports = new HashMap<>();
+            observation.tcp().forEach(t -> ports.put(t.port(), t.state()));
+            alerts.onCheck(device.id(), new RuleEvaluator.CheckFacts(device.name(), r.status(), r.rttMs(), r.lossPct(), ports));
         });
     }
 

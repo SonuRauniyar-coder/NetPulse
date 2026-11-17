@@ -40,3 +40,9 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
 }
+
+/** Hides controls the server would refuse anyway. The server remains the real enforcement. */
+export function useCan() {
+  const role = useAuth().user?.role;
+  return { operate: role === "ADMIN" || role === "OPERATOR", admin: role === "ADMIN" };
+}

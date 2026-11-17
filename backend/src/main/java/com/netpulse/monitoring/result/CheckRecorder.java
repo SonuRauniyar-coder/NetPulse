@@ -6,9 +6,11 @@ import com.netpulse.monitoring.status.Observation;
 import com.netpulse.monitoring.status.StatusEvaluator;
 import com.netpulse.monitoring.status.StatusEvaluator.Assessment;
 import com.netpulse.monitoring.status.StatusEvaluator.Transition;
+import com.netpulse.settings.SettingsService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,11 +19,13 @@ import java.util.UUID;
 @Service
 public class CheckRecorder {
     private final CheckResultStore store;
-    private final NetPulseProperties.Thresholds thresholds;
+    private final SettingsService settings;
+    private final Clock clock;
 
-    public CheckRecorder(CheckResultStore store, NetPulseProperties props) {
+    public CheckRecorder(CheckResultStore store, SettingsService settings, Clock clock) {
         this.store = store;
-        this.thresholds = props.monitoring().thresholds();
+        this.settings = settings;
+        this.clock = clock;
     }
 
     public record Recorded(UUID deviceId, DeviceStatus previous, DeviceStatus status, Assessment assessment,
@@ -38,6 +42,7 @@ public class CheckRecorder {
             return Optional.empty();
         }
         CheckResultStore.DeviceState s = locked.get();
+        NetPulseProperties.Thresholds thresholds = settings.current().thresholds();
         Assessment a = StatusEvaluator.assess(o, thresholds);
         Transition t = StatusEvaluator.next(s.status(), s.failures(), s.successes(), a.verdict(), thresholds);
 
@@ -47,12 +52,14 @@ public class CheckRecorder {
         store.insertDns(checkId, o.dns());
 
         boolean changed = t.status() != s.status();
-        if (changed) store.insertStatusEvent(deviceId, s.status(), t.status(), a.reason(), checkedAt);
+        // A transition happens when it is applied, not when its probes began, so the event history stays in order.
+        Instant changedAt = changed ? clock.instant() : null;
+        if (changed) store.insertStatusEvent(deviceId, s.status(), t.status(), a.reason(), changedAt);
 
         Double rtt = o.ping() == null ? null : o.ping().rttAvg();
         Double loss = o.ping() == null || o.ping().sent() == 0 ? null : o.ping().lossPct();
         store.updateDeviceState(deviceId, t.status(), a.icmpBlocked(), t.failures(), t.successes(),
-                resolvedIp, rtt, loss, checkedAt, changed ? checkedAt : null);
+                resolvedIp, rtt, loss, checkedAt, changedAt);
         return Optional.of(new Recorded(deviceId, s.status(), t.status(), a, rtt, loss, checkedAt));
     }
 }

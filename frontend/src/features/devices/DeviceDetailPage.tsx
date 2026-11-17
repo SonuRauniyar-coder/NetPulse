@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellOff, Cable, ChartLine, ChevronLeft, ChevronRight, Globe, History, Network, Pencil, RefreshCw, ShieldAlert } from "lucide-react";
+import { Cable, ChartLine, ChevronLeft, ChevronRight, Globe, History, Pencil, RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/features/auth/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState, ErrorState, PageHeader, Panel, RelativeTime, RowsSkeleton, StatusBadge } from "@/components/common";
@@ -13,6 +14,8 @@ import { fmtMs, fmtPct } from "@/lib/format";
 import type { CheckDetail, CheckSummary, Device, MetricPoint, Page, Range, StatusEvent, TcpDetail, UptimeResponse } from "@/lib/types";
 import { NotFound } from "@/pages/misc";
 import { DeviceFormDialog } from "./DeviceFormDialog";
+import { SnmpTab } from "./SnmpTab";
+import { DeviceAlertsTab } from "@/features/alerts/AlertsPage";
 
 const LIVE = 30_000;
 
@@ -20,7 +23,7 @@ function Fact({ label, children, mono }: { label: string; children: ReactNode; m
   return (
     <div className="flex justify-between gap-4 px-4 py-2.5 text-sm">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className={`min-w-0 truncate text-right ${mono ? "font-mono text-xs" : ""}`}>{children}</dd>
+      <dd className={`min-w-0 text-right [overflow-wrap:anywhere] ${mono ? "font-mono text-xs" : ""}`}>{children}</dd>
     </div>
   );
 }
@@ -51,7 +54,7 @@ function HistoryTab({ id }: { id: string }) {
   const checks = useQuery({ queryKey: ["devices", id, "checks", page], queryFn: () => api<Page<CheckSummary>>(`/devices/${id}/checks?size=20&page=${page}`), placeholderData: keepPreviousData, refetchInterval: LIVE });
   const events = useQuery({ queryKey: ["devices", id, "events"], queryFn: () => api<Page<StatusEvent>>(`/devices/${id}/events?size=10`), refetchInterval: LIVE });
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Panel title="Check history" className="lg:col-span-2">
         {checks.isError ? <ErrorState message={checks.error.message} onRetry={() => checks.refetch()} />
           : !checks.data ? <RowsSkeleton />
@@ -95,6 +98,7 @@ function HistoryTab({ id }: { id: string }) {
 export function DeviceDetailPage() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
+  const canWrite = useAuth().user?.role !== "VIEWER";
   const [editing, setEditing] = useState(false);
   const device = useQuery({ queryKey: ["devices", id, "detail"], queryFn: () => api<Device>(`/devices/${id}`), refetchInterval: LIVE, retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 1 });
   const latest = useQuery({ queryKey: ["devices", id, "latest"], queryFn: () => api<CheckDetail | undefined>(`/devices/${id}/checks/latest`).then((v) => v ?? null), refetchInterval: LIVE });
@@ -111,15 +115,15 @@ export function DeviceDetailPage() {
   return (
     <>
       <PageHeader title={d.name} description={`${d.type[0] + d.type.slice(1).toLowerCase()}${d.location ? ` · ${d.location}` : ""}`}
-        action={<div className="flex items-center gap-2">
+        action={canWrite ? <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" disabled={!d.enabled} onClick={checkNow}><RefreshCw /> Check now</Button>
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil /> Edit</Button>
-        </div>} />
+        </div> : undefined} />
       <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
         <StatusBadge status={d.status} />
-        <span className="font-mono text-xs">{d.host}</span>
+        <span className="min-w-0 font-mono text-xs [overflow-wrap:anywhere]">{d.host}</span>
         {d.icmpBlocked && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ShieldAlert aria-hidden className="size-3.5" /> ICMP blocked; reachable over TCP</span>}
-        <span className="text-xs text-muted-foreground">Checked <RelativeTime iso={d.lastCheckedAt} fallback="not yet" /></span>
+        <span className="text-xs text-muted-foreground">{d.lastCheckedAt ? <>Checked <RelativeTime iso={d.lastCheckedAt} /></> : "Not checked yet"}</span>
       </div>
 
       <Tabs defaultValue="overview">
@@ -160,7 +164,7 @@ export function DeviceDetailPage() {
 
         <TabsContent value="ports" className="mt-3">
           <Panel>
-            {!check?.tcp.length ? <EmptyState icon={Cable} title="No port results" description={d.ports.length ? "Results appear after the next check." : "Edit this device to add TCP ports to check."} action={!d.ports.length ? <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Add ports</Button> : undefined} />
+            {!check?.tcp.length ? <EmptyState icon={Cable} title="No port results" description={d.ports.length ? "Results appear after the next check." : "Edit this device to add TCP ports to check."} action={canWrite && !d.ports.length ? <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Add ports</Button> : undefined} />
               : <table className="w-full text-sm"><thead className="border-b text-left text-xs text-muted-foreground"><tr><th className="px-4 py-2 font-medium">Port</th><th className="px-3 py-2 font-medium">State</th><th className="px-3 py-2 text-right font-medium">Connect time</th><th className="px-4 py-2 font-medium">Detail</th></tr></thead>
                 <tbody className="divide-y">{check.tcp.map((t) => (
                   <tr key={t.port}>
@@ -175,7 +179,7 @@ export function DeviceDetailPage() {
 
         <TabsContent value="dns" className="mt-3">
           <Panel>
-            {!check?.dns.length ? <EmptyState icon={Globe} title="No DNS results" description={d.dnsChecks.length ? "Results appear after the next check." : "Edit this device to add DNS lookups."} action={!d.dnsChecks.length ? <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Add lookups</Button> : undefined} />
+            {!check?.dns.length ? <EmptyState icon={Globe} title="No DNS results" description={d.dnsChecks.length ? "Results appear after the next check." : "Edit this device to add DNS lookups."} action={canWrite && !d.dnsChecks.length ? <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Add lookups</Button> : undefined} />
               : <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm"><thead className="border-b text-left text-xs text-muted-foreground"><tr><th className="px-4 py-2 font-medium">Query</th><th className="px-3 py-2 font-medium">Server</th><th className="px-3 py-2 font-medium">Result</th><th className="px-3 py-2 text-right font-medium">Time</th><th className="px-4 py-2 font-medium">Answers</th></tr></thead>
                 <tbody className="divide-y">{check.dns.map((r, i) => (
                   <tr key={i} className="align-top">
@@ -189,8 +193,8 @@ export function DeviceDetailPage() {
           </Panel>
         </TabsContent>
 
-        <TabsContent value="snmp" className="mt-3"><Panel><EmptyState icon={Network} title="Planned for Phase 2" description="Interface status, bandwidth utilization and sparklines come from SNMP polling." /></Panel></TabsContent>
-        <TabsContent value="alerts" className="mt-3"><Panel><EmptyState icon={BellOff} title="Planned for Phase 3" description="Per-device alert history arrives with the alert engine." /></Panel></TabsContent>
+        <TabsContent value="snmp" className="mt-3"><SnmpTab deviceId={id} /></TabsContent>
+        <TabsContent value="alerts" className="mt-3"><DeviceAlertsTab deviceId={id} /></TabsContent>
         <TabsContent value="history" className="mt-3"><HistoryTab id={id} /></TabsContent>
       </Tabs>
 

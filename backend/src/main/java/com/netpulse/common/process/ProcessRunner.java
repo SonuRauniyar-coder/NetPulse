@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
@@ -13,6 +14,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Predicate;
 
 /**
  * Runs an external networking tool (ping, traceroute, arp ...) safely.
@@ -31,19 +33,64 @@ public class ProcessRunner {
     private static final Logger log = LoggerFactory.getLogger(ProcessRunner.class);
     private static final int MAX_OUTPUT_BYTES = 256 * 1024;
 
-    public ProcessResult run(List<String> command, Duration timeout) {
+    /**
+     * Runs a command and hands over each output line as it arrives (traceroute needs this to stream hops).
+     *
+     * @param onLine returns false to stop early; the process is then killed and the result is not a timeout
+     */
+    public ProcessResult runStreaming(List<String> command, Duration timeout, Predicate<String> onLine) {
+        long start = System.nanoTime();
+        Process process = start(command);
+        StringBuilder all = new StringBuilder();
+        CompletableFuture<Void> reader = CompletableFuture.runAsync(() -> {
+            try (BufferedReader in = process.inputReader(Charset.defaultCharset())) {
+                String line;
+                while ((line = in.readLine()) != null) {
+                    if (all.length() < MAX_OUTPUT_BYTES) all.append(line).append('\n');
+                    if (!onLine.test(line)) {
+                        kill(process);
+                        return;
+                    }
+                }
+            } catch (IOException e) {
+                log.debug("Stream of {} ended: {}", command.getFirst(), e.getMessage());   // normal after a kill
+            }
+        }, r -> Thread.ofVirtual().start(r));
+        try {
+            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                kill(process);
+                return new ProcessResult(-1, all.toString(), true, elapsedMs(start));
+            }
+            reader.get(2, TimeUnit.SECONDS);
+            return new ProcessResult(process.exitValue(), all.toString(), false, elapsedMs(start));
+        } catch (InterruptedException e) {
+            kill(process);
+            Thread.currentThread().interrupt();
+            return new ProcessResult(-1, all.toString(), true, elapsedMs(start));
+        } catch (ExecutionException | TimeoutException e) {
+            kill(process);
+            return new ProcessResult(-1, all.toString(), false, elapsedMs(start));
+        } finally {
+            if (process.isAlive()) kill(process);
+            closeQuietly(process);
+        }
+    }
+
+    private static Process start(List<String> command) {
         ProcessBuilder pb = new ProcessBuilder(command).redirectErrorStream(true);
         // Force English, predictable output on Linux/macOS (does not affect Windows, which localizes anyway).
         pb.environment().put("LC_ALL", "C");
         pb.environment().put("LANG", "C");
-
-        long start = System.nanoTime();
-        Process process;
         try {
-            process = pb.start();
+            return pb.start();
         } catch (IOException e) {
             throw classifyStartFailure(command.getFirst(), e);
         }
+    }
+
+    public ProcessResult run(List<String> command, Duration timeout) {
+        long start = System.nanoTime();
+        Process process = start(command);
 
         CompletableFuture<String> output = CompletableFuture.supplyAsync(
                 () -> readAll(process.getInputStream()), r -> Thread.ofVirtual().start(r));

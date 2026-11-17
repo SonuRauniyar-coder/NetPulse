@@ -1,11 +1,12 @@
 import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
-import { AlertTriangle, CheckCircle2, CircleHelp, CircleX, PauseCircle, RefreshCw, TriangleAlert, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, CircleX, Copy, Info, PauseCircle, RefreshCw, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtDateTime } from "@/lib/format";
-import type { DeviceStatus } from "@/lib/types";
+import type { DeviceStatus, Severity } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const STATUS: Record<DeviceStatus, { label: string; icon: LucideIcon; cls: string }> = {
@@ -25,6 +26,60 @@ export function StatusBadge({ status, className }: { status: DeviceStatus; class
       <Icon aria-hidden className="size-3.5" />
       {s.label}
     </span>
+  );
+}
+
+const SEVERITY: Record<Severity, { label: string; icon: LucideIcon; cls: string }> = {
+  CRITICAL: { label: "Critical", icon: CircleX, cls: "text-status-down border-status-down/30 bg-status-down/10" },
+  WARNING: { label: "Warning", icon: TriangleAlert, cls: "text-status-degraded border-status-degraded/30 bg-status-degraded/10" },
+  INFO: { label: "Info", icon: Info, cls: "text-status-neutral border-status-neutral/30 bg-status-neutral/10" },
+};
+
+export function SeverityBadge({ severity }: { severity: Severity }) {
+  const s = SEVERITY[severity];
+  const Icon = s.icon;
+  return <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap", s.cls)}><Icon aria-hidden className="size-3.5" />{s.label}</span>;
+}
+
+export function CopyButton({ value, label }: { value: string; label: string }) {
+  const [done, setDone] = useState(false);
+  const copy = () => void navigator.clipboard?.writeText(value).then(() => { setDone(true); window.setTimeout(() => setDone(false), 1200); });
+  return <Button type="button" variant="ghost" size="icon-xs" aria-label={`Copy ${label}`} onClick={copy}>{done ? <Check /> : <Copy />}</Button>;
+}
+
+export function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+  if (totalPages <= 1) return null;
+  return (
+    <footer className="flex items-center justify-end gap-2 border-t px-4 py-2.5 text-xs text-muted-foreground">
+      <span>Page {page + 1} of {totalPages}</span>
+      <Button variant="outline" size="icon-xs" aria-label="Previous page" disabled={page === 0} onClick={() => onChange(page - 1)}><ChevronLeft /></Button>
+      <Button variant="outline" size="icon-xs" aria-label="Next page" disabled={page + 1 >= totalPages} onClick={() => onChange(page + 1)}><ChevronRight /></Button>
+    </footer>
+  );
+}
+
+/** Render {dialog} once, then call confirm(...) wherever a destructive action starts. */
+export function useConfirm() {
+  const [pending, setPending] = useState<{ title: string; description: string; run: () => void } | null>(null);
+  const dialog = (
+    <AlertDialog open={!!pending} onOpenChange={(o) => { if (!o) setPending(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader><AlertDialogTitle>{pending?.title}</AlertDialogTitle><AlertDialogDescription>{pending?.description}</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => pending?.run()}>Delete</AlertDialogAction></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+  return { dialog, confirm: (title: string, description: string, run: () => void) => setPending({ title, description, run }) };
+}
+
+export function FormField({ id, label, error, hint, children }: { id?: string; label: string; error?: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+      {children}
+      {hint && !error && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {error && <p className="text-xs text-status-down">{error}</p>}
+    </div>
   );
 }
 
@@ -53,8 +108,8 @@ export function PageHeader({ title, description, action }: { title: string; desc
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+        <h1 className="text-xl font-semibold tracking-tight [overflow-wrap:anywhere]">{title}</h1>
+        {description && <p className="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">{description}</p>}
       </div>
       {action}
     </div>

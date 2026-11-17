@@ -63,14 +63,20 @@ public class MonitoringScheduler {
         try {
             Instant now = clock.instant();
             for (DueDeviceStore.Due due : store.findDue(now, batchSize)) {
-                // Claim first, so the device is not due again on the next tick while this cycle runs.
-                store.scheduleNext(due.id(), now.plusSeconds(due.intervalSeconds()));
+                // Leave a busy device due: a host edit or "Check now" made during this cycle runs right after it.
                 if (!inFlight.add(due.id())) {
                     metrics.recordSkipped();
-                    log.warn("Skipping check for device {}: previous cycle still running", due.id());
+                    log.debug("Deferring check for device {}: previous cycle still running", due.id());
                     continue;
                 }
-                executor.submit(() -> runGuarded(due.id()));
+                try {
+                    // Claim before submitting, so the device is not due again on the next tick while this cycle runs.
+                    store.scheduleNext(due.id(), now.plusSeconds(due.intervalSeconds()));
+                    executor.submit(() -> runGuarded(due.id()));
+                } catch (RuntimeException e) {
+                    inFlight.remove(due.id());
+                    throw e;
+                }
             }
         } catch (RuntimeException e) {
             log.error("Monitoring tick failed; will retry on the next tick", e);   // never let the engine die

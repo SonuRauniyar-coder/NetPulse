@@ -20,7 +20,7 @@ ICMP is carried directly inside IP (protocol number 1), so it belongs to **OSI l
 | 8 | 0 | Echo Request | The probe |
 | 0 | 0 | Echo Reply | The answer |
 | 3 | 0 / 1 / 3 | Destination Unreachable (net / host / port) | A router or host reporting failure |
-| 11 | 0 | Time Exceeded | TTL hit 0; traceroute relies on this (Phase 2) |
+| 11 | 0 | Time Exceeded | TTL hit 0; traceroute relies on this |
 
 An echo message carries an **identifier** and **sequence number**, so replies can be matched to requests. IPv6 uses ICMPv6, with Echo Request 128 and Reply 129.
 

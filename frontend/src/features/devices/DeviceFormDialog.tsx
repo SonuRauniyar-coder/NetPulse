@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Controller, useFieldArray, useForm, type FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { ApiError, post, put } from "@/lib/api";
 import type { Device, DeviceRequest, DeviceType, DnsRecordType } from "@/lib/types";
 import { deviceSchema, type DeviceFormInput, type DeviceFormValues } from "@/lib/validation";
@@ -18,9 +19,9 @@ const TYPES: DeviceType[] = ["ROUTER", "SWITCH", "FIREWALL", "SERVER", "WEBSITE"
 const RECORDS: DnsRecordType[] = ["A", "AAAA", "MX", "NS", "TXT", "PTR"];
 const label = (t: string) => t[0] + t.slice(1).toLowerCase();
 
-function toForm(d?: Device | null): DeviceFormInput {
+function toForm(d?: Device | null, initial?: { name: string; host: string }): DeviceFormInput {
   return {
-    name: d?.name ?? "", host: d?.host ?? "", type: d?.type ?? "SERVER", location: d?.location ?? "",
+    name: d?.name ?? initial?.name ?? "", host: d?.host ?? initial?.host ?? "", type: d?.type ?? "SERVER", location: d?.location ?? "", description: d?.description ?? "",
     tags: d?.tags.join(", ") ?? "", checkIntervalSeconds: d?.checkIntervalSeconds ?? 60, enabled: d?.enabled ?? true,
     ports: d?.ports.map((p) => ({ port: p.port, label: p.label ?? "" })) ?? [],
     dnsChecks: d?.dnsChecks.map((c) => ({ recordType: c.recordType, queryName: c.queryName ?? "", dnsServer: c.dnsServer ?? "" })) ?? [],
@@ -40,17 +41,24 @@ function Err({ msg }: { msg?: string }) {
   return msg ? <p className="mt-1 text-xs text-status-down">{msg}</p> : null;
 }
 
-export function DeviceFormDialog({ open, device, onOpenChange }: { open: boolean; device?: Device | null; onOpenChange: (o: boolean) => void }) {
+export function DeviceFormDialog({ open, device, initial, onOpenChange }: { open: boolean; device?: Device | null; initial?: { name: string; host: string }; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   const { register, control, handleSubmit, reset, setError, formState: { errors, isSubmitting } } =
     useForm<DeviceFormInput, unknown, DeviceFormValues>({ resolver: zodResolver(deviceSchema), defaultValues: toForm(device) });
   const ports = useFieldArray({ control, name: "ports" });
   const dns = useFieldArray({ control, name: "dnsChecks" });
+  const openedVersion = useRef<number | undefined>(undefined);
 
-  useEffect(() => { if (open) reset(toForm(device)); }, [open, device, reset]);
+  // Only on open: a background refetch of the device must not discard what the user is typing.
+  useEffect(() => {
+    if (!open) return;
+    reset(toForm(device, initial));
+    openedVersion.current = device?.version;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, device?.id, initial?.host, reset]);
 
   const save = useMutation({
-    mutationFn: (v: DeviceFormValues) => (device ? put<Device>(`/devices/${device.id}`, toRequest(v)) : post<Device>("/devices", toRequest(v))),
+    mutationFn: (v: DeviceFormValues) => (device ? put<Device>(`/devices/${device.id}`, { ...toRequest(v), version: openedVersion.current }) : post<Device>("/devices", toRequest(v))),
     onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: ["devices"] });
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
@@ -60,8 +68,11 @@ export function DeviceFormDialog({ open, device, onOpenChange }: { open: boolean
     onError: (e: Error) => {
       if (e instanceof ApiError && e.fieldErrors) {
         Object.entries(e.fieldErrors).forEach(([f, m]) => setError(f as FieldPath<DeviceFormInput>, { message: m }));
-      } else if (e instanceof ApiError && e.status === 409) {
+      } else if (e instanceof ApiError && e.status === 409 && e.message.includes("already exists")) {
         setError("name", { message: e.message });
+      } else if (e instanceof ApiError && e.status === 409) {
+        void qc.invalidateQueries({ queryKey: ["devices"] });
+        toast.error(e.message);
       } else if (e instanceof ApiError && e.status === 400) {
         setError("host", { message: e.message });
       } else {
@@ -90,20 +101,23 @@ export function DeviceFormDialog({ open, device, onOpenChange }: { open: boolean
                 </Select>)} />
             </div>
             <div><Label htmlFor="interval" className="mb-1.5">Check interval (seconds)</Label><Input id="interval" type="number" min={10} max={3600} aria-invalid={!!errors.checkIntervalSeconds} {...register("checkIntervalSeconds")} /><Err msg={errors.checkIntervalSeconds?.message} /></div>
-            <div><Label htmlFor="location" className="mb-1.5">Location</Label><Input id="location" {...register("location")} /></div>
+            <div><Label htmlFor="location" className="mb-1.5">Location</Label><Input id="location" aria-invalid={!!errors.location} {...register("location")} /><Err msg={errors.location?.message} /></div>
             <div><Label htmlFor="tags" className="mb-1.5">Tags (comma separated)</Label><Input id="tags" aria-invalid={!!errors.tags} {...register("tags")} /><Err msg={errors.tags?.message} /></div>
           </div>
+
+          <div><Label htmlFor="description" className="mb-1.5">Description</Label><Textarea id="description" rows={2} aria-invalid={!!errors.description} {...register("description")} /><Err msg={errors.description?.message} /></div>
 
           <fieldset>
             <div className="mb-2 flex items-center justify-between">
               <legend className="text-sm font-medium">TCP ports</legend>
               <Button type="button" variant="ghost" size="xs" onClick={() => ports.append({ port: "" as unknown as number, label: "" })}><Plus /> Add port</Button>
             </div>
+            <Err msg={errors.ports?.message ?? errors.ports?.root?.message} />
             <div className="space-y-2">
               {ports.fields.map((f, i) => (
                 <div key={f.id} className="flex items-start gap-2">
                   <div className="w-28"><Input aria-label="Port" type="number" className="font-mono" aria-invalid={!!errors.ports?.[i]?.port} {...register(`ports.${i}.port`)} /><Err msg={errors.ports?.[i]?.port?.message} /></div>
-                  <Input aria-label="Label" placeholder="Label (optional)" {...register(`ports.${i}.label`)} />
+                  <div className="flex-1"><Input aria-label="Label" placeholder="Label (optional)" aria-invalid={!!errors.ports?.[i]?.label} {...register(`ports.${i}.label`)} /><Err msg={errors.ports?.[i]?.label?.message} /></div>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove port" onClick={() => ports.remove(i)}><X /></Button>
                 </div>
               ))}
@@ -115,6 +129,7 @@ export function DeviceFormDialog({ open, device, onOpenChange }: { open: boolean
               <legend className="text-sm font-medium">DNS checks</legend>
               <Button type="button" variant="ghost" size="xs" onClick={() => dns.append({ recordType: "A", queryName: "", dnsServer: "" })}><Plus /> Add lookup</Button>
             </div>
+            <Err msg={errors.dnsChecks?.message ?? errors.dnsChecks?.root?.message} />
             <div className="space-y-2">
               {dns.fields.map((f, i) => (
                 <div key={f.id} className="flex items-start gap-2">

@@ -20,7 +20,12 @@ public record NetPulseProperties(
         boolean demoMode,
         @Valid @NotNull Security security,
         @Valid @NotNull Monitoring monitoring,
-        @Valid @NotNull Retention retention) {
+        @Valid @NotNull Retention retention,
+        String credentialEncryptionKey,
+        @Valid @NotNull Traceroute traceroute,
+        @Valid @NotNull Discovery discovery,
+        @Valid @NotNull Snmp snmp,
+        @Valid @NotNull Notifications notifications) {
 
     public record Security(
             String jwtSecret,
@@ -60,5 +65,23 @@ public record NetPulseProperties(
     }
 
     public record Retention(@Min(1) int rawDays, @Min(1) int rollupDays, @Min(100) int deleteBatchSize) {
+    }
+
+    public record Traceroute(@Min(1) @Max(64) int maxHops, @Min(1) @Max(5) int probesPerHop, @NotNull Duration probeTimeout,
+                             @NotNull Duration runTimeout, @Min(1) int maxSilentHops, @Min(1) int maxConcurrent,
+                             @Min(1) int perUserPerMinute) {
+    }
+
+    public record Discovery(@NotNull List<String> authorizedCidrs, @Min(16) @Max(32) int minPrefix,
+                            @Min(1) @Max(512) int maxConcurrentProbes, @NotNull Duration probeTimeout,
+                            @NotNull Duration maxDuration, @Min(1) int maxConcurrentScans, @Min(1) int perUserPerMinute) {
+    }
+
+    public record Snmp(@NotNull Duration timeout, @Min(0) @Max(5) int retries, @Min(1) int maxConcurrentPolls,
+                       @Min(10) @Max(3600) int defaultIntervalSeconds, @Min(1) int maxInterfaces) {
+    }
+
+    public record Notifications(@NotNull String mailFrom, @Min(1) @Max(20) int maxAttempts,
+                                @NotNull Duration initialBackoff, @NotNull Duration webhookTimeout) {
     }
 }

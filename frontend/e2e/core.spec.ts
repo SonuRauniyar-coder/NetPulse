@@ -42,3 +42,43 @@ test("sign in, add a device and see a real status", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("heading", { name })).toBeVisible();
 });
+
+test("an alert fires from a real failed port check and can be acknowledged", async ({ page }) => {
+  const stamp = Date.now();
+  const device = `e2e-alert-${stamp}`;
+
+  await page.goto("/login");
+  await page.getByLabel("Username").fill(USER);
+  await page.getByLabel("Password").fill(PASS);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Alerts" }).first().click();
+  await page.getByRole("tab", { name: "Rules" }).click();
+  await page.getByRole("button", { name: "New rule" }).first().click();
+  let dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill(`e2e-rule-${stamp}`);
+  await dialog.getByRole("combobox", { name: "Condition" }).click();
+  await page.getByRole("option", { name: "Port closed" }).click();
+  await dialog.getByLabel("For (minutes)").fill("0");
+  await dialog.getByRole("button", { name: "Save rule" }).click();
+  await expect(page.getByRole("cell", { name: `e2e-rule-${stamp}`, exact: true })).toBeVisible();
+
+  await page.getByRole("link", { name: "Devices" }).first().click();
+  await page.getByRole("button", { name: "Add device" }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name", { exact: true }).fill(device);
+  await dialog.getByLabel("IP or hostname").fill("127.0.0.1");
+  await dialog.getByRole("button", { name: /Add port/ }).click();
+  await dialog.getByLabel("Port", { exact: true }).fill("1");   // nothing listens on TCP port 1, so the connection is refused
+  await dialog.getByRole("button", { name: "Add device" }).click();
+
+  // The bell and the table update through the WebSocket, with no reload.
+  await page.getByRole("link", { name: /^Alerts/ }).first().click();
+  const row = page.getByRole("row", { name: new RegExp(`${device} port 1.*e2e-rule-${stamp}`) });
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.getByRole("button", { name: "Acknowledge" }).click();
+  await expect(page.getByText("Alert acknowledged")).toBeVisible();
+  await page.getByRole("tab", { name: "Acknowledged" }).click();
+  await expect(page.getByRole("row", { name: new RegExp(`${device} port 1.*e2e-rule-${stamp}`) })).toContainText(/Acknowledged by/);
+});
