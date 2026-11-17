@@ -4,6 +4,7 @@ netpulse:
     cookie-secure: false
     admin-username: admin
     admin-password: Test-Admin-Pass-1!
+    login-rate-limit-per-minute: 1000
   monitoring:
     enabled: false                   # integration tests drive checks explicitly
 springdoc:
