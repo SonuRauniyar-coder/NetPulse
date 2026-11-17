@@ -1,0 +1,42 @@
+# One-command demo with SYNTHETIC data and its own database. The monitoring engine is off.
+#   docker compose -f docker-compose.demo.yml up --build
+# Open http://localhost:8089 and sign in with demo / NetPulse-Demo-2026!
+name: netpulse-demo
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: netpulse_demo
+      POSTGRES_USER: netpulse
+      POSTGRES_PASSWORD: netpulse
+    volumes:
+      - pgdata-demo:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netpulse -d netpulse_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
+      DEMO_DB_URL: jdbc:postgresql://postgres:5432/netpulse_demo
+      DB_USERNAME: netpulse
+      DB_PASSWORD: netpulse
+      ALLOWED_ORIGINS: http://localhost:8089
+    cap_drop: [ALL]
+
+  web:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8089:8080"
+
+volumes:
+  pgdata-demo:
